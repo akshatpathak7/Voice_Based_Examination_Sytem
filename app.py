@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+import re
 from models import db, Registration, Exam, Question, Answer, ExamSession, Candidate
 from werkzeug.security import check_password_hash
 
@@ -10,6 +11,38 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///exam.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
+
+def normalize_answer(question_text, answer_text):
+    text = " ".join(answer_text.strip().split())
+
+    if not text:
+        return text
+
+    text = re.sub(r"\bim\b", "I'm", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bi\b", "I", text)
+
+    words = text.split()
+    for idx in range(len(words) - 1):
+        if words[idx].lower() in ("a", "an"):
+            next_word = re.sub(r"[^A-Za-z]", "", words[idx + 1])
+            if next_word:
+                starts_vowel = next_word[0].lower() in "aeiou"
+                if words[idx].lower() == "a" and starts_vowel:
+                    words[idx] = "an"
+                elif words[idx].lower() == "an" and not starts_vowel:
+                    words[idx] = "a"
+
+    text = " ".join(words)
+    text = text[0].upper() + text[1:]
+    text = re.sub(r"(?<=[\.\!\?]\s)([a-z])", lambda match: match.group(1).upper(), text)
+
+    if text[-1] not in ".!?":
+        text += "."
+
+    if question_text and "capital of" in question_text.lower():
+        text = text.title()
+
+    return text
 
 # ---------- ROUTES ----------
 
@@ -253,10 +286,16 @@ def save_answer():
 
     data = request.get_json()
 
+    question = Question.query.get(data['question_id'])
+    normalized_answer = normalize_answer(
+        question.question_text if question else "",
+        data['answer']
+    )
+
     answer = Answer(
         session_id=session['exam_session_id'],
         question_id=data['question_id'],
-        answer_text=data['answer']
+        answer_text=normalized_answer
     )
 
     db.session.add(answer)
