@@ -9,7 +9,8 @@
 <div class="login-box">
     <h2>🔐 Login</h2>
 
-    <form method="post">
+    <form action="/login" method="post">
+
         <input type="text" name="username" placeholder="Username" required>
 
         <input type="password" name="password" placeholder="Password" required>
@@ -17,15 +18,18 @@
         <button type="submit">Login</button>
     </form>
 
-    {% if error %}
-        <p class="error">{{ error }}</p>
-    {% endif %}
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+         {% for message in messages %}
+            <p class="error">{{ message }}</p>
+         {% endfor %}
+      {% endif %}
+    {% endwith %}
 
     <div class="role-info">
-        <p><strong>Demo Credentials</strong></p>
-        <p>Student: student1 / 123</p>
-        <p>Invigilator: invigilator1 / 123</p>
-        <p>Admin: admin1 / 123</p>
+        <p><strong>Working Credentials</strong></p>
+        <p>Candidate: student / student123</p>
+        <p>Invigilator: invigilator / invigilator123</p>
     </div>
 </div>
 
