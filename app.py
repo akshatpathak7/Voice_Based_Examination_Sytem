@@ -3,6 +3,11 @@ import re
 from models import db, Registration, Exam, Question, Answer, ExamSession, Candidate
 from werkzeug.security import check_password_hash
 
+try:
+    import language_tool_python
+except ImportError:  # graceful fallback if not installed
+    language_tool_python = None
+
 app = Flask(__name__)
 app.secret_key = "secretkey123"
 
@@ -12,15 +17,30 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 
+_grammar_tool = None
+if language_tool_python is not None:
+    try:
+        _grammar_tool = language_tool_python.LanguageTool("en-US")
+    except Exception:
+        _grammar_tool = None
+
+
 def normalize_answer(question_text, answer_text):
     text = " ".join(answer_text.strip().split())
 
     if not text:
         return text
 
+    # Basic fixes for common STT artefacts and casing
     text = re.sub(r"\bim\b", "I'm", text, flags=re.IGNORECASE)
     text = re.sub(r"\bi\b", "I", text)
 
+    # Remove common filler words
+    fillers_pattern = r"\b(um+|uh+|erm|like|you know|sort of|kind of)\b"
+    text = re.sub(fillers_pattern, "", text, flags=re.IGNORECASE)
+    text = " ".join(text.split())
+
+    # Fix a/an usage based on following word
     words = text.split()
     for idx in range(len(words) - 1):
         if words[idx].lower() in ("a", "an"):
@@ -33,14 +53,28 @@ def normalize_answer(question_text, answer_text):
                     words[idx] = "a"
 
     text = " ".join(words)
-    text = text[0].upper() + text[1:]
+
+    # Capitalize first character and start of new sentences
+    if text:
+        text = text[0].upper() + text[1:]
     text = re.sub(r"(?<=[\.\!\?]\s)([a-z])", lambda match: match.group(1).upper(), text)
 
-    if text[-1] not in ".!?":
+    # Ensure trailing punctuation
+    if text and text[-1] not in ".!?":
         text += "."
 
+    # Simple question-specific rule example
     if question_text and "capital of" in question_text.lower():
         text = text.title()
+
+    # Optional grammar correction step for better contextual correctness
+    if _grammar_tool is not None:
+        try:
+            matches = _grammar_tool.check(text)
+            text = language_tool_python.utils.correct(text, matches)
+        except Exception:
+            # If grammar tool fails for any reason, fall back to rule-based result
+            pass
 
     return text
 
@@ -301,7 +335,10 @@ def save_answer():
     db.session.add(answer)
     db.session.commit()
 
-    return jsonify({"status": "saved"})
+    return jsonify({
+        "status": "saved",
+        "normalized_answer": answer.answer_text
+    })
 
 
 @app.route('/api/start_exam')

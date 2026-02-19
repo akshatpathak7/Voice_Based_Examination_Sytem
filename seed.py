@@ -42,11 +42,11 @@ with app.app_context():
     db.session.commit()
 
     # -----------------------------
-    # SAMPLE EXAM
+    # SAMPLE PHYSICS EXAM
     # -----------------------------
     exam = Exam(
-        exam_name="Sample Voice Exam",
-        duration=30,
+        exam_name="Physics – Demo Subjective Exam",
+        duration=60,
         total_marks=100,
         created_by=invigilator.reg_id
     )
@@ -54,12 +54,29 @@ with app.app_context():
     db.session.commit()
 
     # -----------------------------
-    # SAMPLE QUESTIONS
+    # SAMPLE PHYSICS SUBJECTIVE QUESTIONS
     # -----------------------------
     questions = [
-        Question(exam_id=exam.exam_id, question_text="What is photosynthesis?"),
-        Question(exam_id=exam.exam_id, question_text="Define computer network."),
-        Question(exam_id=exam.exam_id, question_text="Explain the concept of operating systems.")
+        Question(
+            exam_id=exam.exam_id,
+            question_text="State Newton's three laws of motion and illustrate each law with a suitable example."
+        ),
+        Question(
+            exam_id=exam.exam_id,
+            question_text="Explain the principle of conservation of energy with reference to the motion of a simple pendulum."
+        ),
+        Question(
+            exam_id=exam.exam_id,
+            question_text="What is refraction of light? Describe an everyday situation where refraction plays an important role and explain it scientifically."
+        ),
+        Question(
+            exam_id=exam.exam_id,
+            question_text="Define electric current, potential difference, and resistance. Explain the relationship between them using Ohm's law."
+        ),
+        Question(
+            exam_id=exam.exam_id,
+            question_text="Describe the difference between longitudinal and transverse waves, and give one real-world example of each type."
+        )
     ]
 
     db.session.add_all(questions)
