@@ -20,6 +20,9 @@
     ttsActive: false,
     restartTimer: null,
     cooldownUntil: 0,
+    timerInterval: null,
+    remainingSeconds: 0,
+    lastAnnouncedQuarter: -1,
   };
 
   const COOLDOWN_AFTER_TTS_MS = 1200;
@@ -36,6 +39,7 @@
       questionBox: document.getElementById("current-question"),
       answerList: document.getElementById("answer-list"),
       startBtn: document.getElementById("start-exam-btn"),
+      timerBox: document.getElementById("exam-timer"),
       logBox: document.getElementById("activity-log"),
     };
     if (els.startBtn) {
@@ -220,6 +224,14 @@
       ],
       action: cmdRepeatQuestion,
     },
+    readAnswer: {
+      synonyms: [
+        "read my answer", "what did i say", "read answer",
+        "my answer", "what is my answer", "read back",
+        "mera answer", "mera jawab",
+      ],
+      action: cmdReadAnswer,
+    },
     clear: {
       synonyms: [
         "clear answer", "delete answer", "redo answer",
@@ -227,6 +239,13 @@
         "i want to redo", "answer dobara",
       ],
       action: cmdClearAnswer,
+    },
+    timeLeft: {
+      synonyms: [
+        "time left", "how much time", "remaining time",
+        "kitna time", "kitna waqt", "time bachi",
+      ],
+      action: cmdTimeLeft,
     },
     submit: {
       synonyms: [
@@ -446,6 +465,26 @@
     log(`Answer for Q${qNum} cleared`);
   }
 
+  function cmdReadAnswer() {
+    if (state.currentIndex < 0 || state.currentIndex >= state.questions.length) {
+      speak("No question selected.");
+      return;
+    }
+    const qNum = state.currentIndex + 1;
+    const answer = state.answers[state.currentIndex];
+    if (!answer) {
+      speak(`You have not recorded an answer for question ${qNum} yet.`);
+    } else {
+      speak(`Your answer for question ${qNum} is: ${answer}`);
+    }
+    log(`Read back answer for Q${qNum}`);
+  }
+
+  function cmdTimeLeft() {
+    speak(formatTimeAnnouncement(state.remainingSeconds));
+    log("Time remaining announced");
+  }
+
   function cmdRepeatQuestion() {
     if (state.currentIndex >= 0 && state.currentIndex < state.questions.length) {
       speak(state.questions[state.currentIndex]);
@@ -457,6 +496,7 @@
 
   function cmdSubmitExam() {
     state.examActive = false;
+    if (state.timerInterval) clearInterval(state.timerInterval);
     recognition.stop();
 
     const skipped = findSkippedQuestions();
@@ -494,7 +534,9 @@
       "Say skip question to skip and come back later. " +
       "Say go to question followed by the number, for example, go to question 3, to jump to that question. " +
       "Say repeat question to hear the current question again. " +
+      "Say read my answer to hear back your recorded answer. " +
       "Say clear answer to delete your answer and record a new one. " +
+      "Say time left to hear how much time remains. " +
       "Say submit exam when you are finished. " +
       "Say help me to hear these instructions again.";
     speak(helpText);
@@ -639,7 +681,70 @@
   }
 
   // ============================================================
-  //  9. Exam Lifecycle
+  //  9. Timer
+  // ============================================================
+  function startTimer(durationMinutes) {
+    state.remainingSeconds = durationMinutes * 60;
+    state.lastAnnouncedQuarter = -1;
+    updateTimerDisplay();
+
+    state.timerInterval = setInterval(() => {
+      state.remainingSeconds--;
+
+      if (state.remainingSeconds <= 0) {
+        state.remainingSeconds = 0;
+        clearInterval(state.timerInterval);
+        speak("Time is up. Your exam is being submitted automatically.");
+        setTimeout(cmdSubmitExam, 3000);
+      }
+
+      updateTimerDisplay();
+      checkTimerAnnouncements();
+    }, 1000);
+  }
+
+  function updateTimerDisplay() {
+    if (!els.timerBox) return;
+    const mins = Math.floor(state.remainingSeconds / 60);
+    const secs = state.remainingSeconds % 60;
+    els.timerBox.textContent =
+      String(mins).padStart(2, "0") + ":" + String(secs).padStart(2, "0");
+
+    els.timerBox.classList.remove("warning", "danger");
+    if (state.remainingSeconds <= 60) {
+      els.timerBox.classList.add("danger");
+    } else if (state.remainingSeconds <= 300) {
+      els.timerBox.classList.add("warning");
+    }
+  }
+
+  function checkTimerAnnouncements() {
+    const mins = Math.floor(state.remainingSeconds / 60);
+    const currentQuarter = Math.floor(mins / 15);
+
+    if (state.remainingSeconds === 300) {
+      speak("5 minutes remaining.");
+      log("Timer: 5 minutes remaining");
+    } else if (state.remainingSeconds === 60) {
+      speak("1 minute remaining. Please wrap up.");
+      log("Timer: 1 minute remaining");
+    } else if (mins > 0 && mins % 15 === 0 && state.remainingSeconds % 60 === 0 && currentQuarter !== state.lastAnnouncedQuarter) {
+      state.lastAnnouncedQuarter = currentQuarter;
+      speak(`${mins} minutes remaining.`);
+      log(`Timer: ${mins} minutes remaining`);
+    }
+  }
+
+  function formatTimeAnnouncement(totalSeconds) {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    if (mins > 0 && secs > 0) return `${mins} minutes and ${secs} seconds remaining.`;
+    if (mins > 0) return `${mins} minutes remaining.`;
+    return `${secs} seconds remaining.`;
+  }
+
+  // ============================================================
+  //  10. Exam Lifecycle
   // ============================================================
   function startExam() {
     if (state.examActive) return;
@@ -653,11 +758,31 @@
       els.startBtn.textContent = "Exam in Progress…";
     }
 
-    speak(
-      "The exam has started. Say next question to hear your first question. " +
-      "You can say repeat question, help, or submit exam at any time."
-    );
-    log("Exam started");
+    fetch("/api/start_exam")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) {
+          log("Error: " + data.error);
+          speak("Could not start exam. " + data.error);
+          state.examActive = false;
+          return;
+        }
+
+        if (data.duration_minutes) {
+          startTimer(data.duration_minutes);
+          log(`Timer set: ${data.duration_minutes} minutes`);
+        }
+
+        speak(
+          "The exam has started. Say next question to hear your first question. " +
+          "You can say repeat question, read my answer, help me, or submit exam at any time."
+        );
+        log("Exam started");
+      })
+      .catch(() => {
+        speak("The exam has started. Say next question to begin.");
+        log("Exam started (timer unavailable)");
+      });
   }
 
   // Expose startExam globally for the button onclick fallback

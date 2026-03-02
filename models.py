@@ -20,6 +20,7 @@ class Registration(db.Model):
     )
     phone_no = db.Column(db.String(15))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    session_token = db.Column(db.String(64), nullable=True)
 
     # Relationships
     login = db.relationship('Login', backref='registration', uselist=False)

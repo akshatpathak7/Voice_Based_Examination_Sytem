@@ -136,6 +136,33 @@ body:not(.exam-body) {
     flex: 1;
 }
 
+.exam-timer {
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 6px;
+    background: #f8f9fc;
+    border: 1px solid var(--clr-border);
+    color: var(--clr-text);
+    min-width: 72px;
+    text-align: center;
+    transition: background 0.3s, color 0.3s;
+}
+
+.exam-timer.warning {
+    background: #fff3cd;
+    border-color: #f6c23e;
+    color: #856404;
+}
+
+.exam-timer.danger {
+    background: #f8d7da;
+    border-color: var(--clr-error);
+    color: var(--clr-error);
+    animation: pulse 1s ease-in-out infinite;
+}
+
 .logout-link {
     color: var(--clr-text-muted);
     text-decoration: none;
