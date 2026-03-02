@@ -46,7 +46,6 @@ def normalize_answer(question_text, answer_text):
     if not text:
         return text
 
-    # Basic fixes for common STT artefacts and casing
     text = re.sub(r"\bim\b", "I'm", text, flags=re.IGNORECASE)
     text = re.sub(r"\bi\b", "I", text)
 
