@@ -1,8 +1,11 @@
 from app import app
 from models import db, Registration, Candidate, Exam, Question
 from werkzeug.security import generate_password_hash
+from crypto_utils import generate_exam_key, encrypt_exam_key, load_master_key
 
 with app.app_context():
+
+    master_key = load_master_key()
 
     # -----------------------------
     # INVIGILATOR USER
@@ -42,13 +45,19 @@ with app.app_context():
     db.session.commit()
 
     # -----------------------------
-    # SAMPLE PHYSICS EXAM
+    # SAMPLE PHYSICS EXAM (with encrypted key)
     # -----------------------------
+    exam_key = generate_exam_key()
+    enc_ct, enc_iv, enc_tag = encrypt_exam_key(exam_key, master_key)
+
     exam = Exam(
         exam_name="Physics – Demo Subjective Exam",
         duration=60,
         total_marks=100,
-        created_by=invigilator.reg_id
+        created_by=invigilator.reg_id,
+        enc_key_ciphertext=enc_ct,
+        enc_key_iv=enc_iv,
+        enc_key_tag=enc_tag,
     )
     db.session.add(exam)
     db.session.commit()

@@ -20,6 +20,7 @@ class Registration(db.Model):
     )
     phone_no = db.Column(db.String(15))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    session_token = db.Column(db.String(64), nullable=True)
 
     # Relationships
     login = db.relationship('Login', backref='registration', uselist=False)
@@ -64,6 +65,10 @@ class Exam(db.Model):
     duration = db.Column(db.Integer, nullable=False)
     total_marks = db.Column(db.Integer)
     created_by = db.Column(db.Integer, db.ForeignKey('registration.reg_id'), nullable=False)
+
+    enc_key_ciphertext = db.Column(db.LargeBinary, nullable=True)
+    enc_key_iv = db.Column(db.LargeBinary, nullable=True)
+    enc_key_tag = db.Column(db.LargeBinary, nullable=True)
 
     questions = db.relationship('Question', backref='exam')
     sessions = db.relationship('ExamSession', backref='exam')
@@ -110,7 +115,14 @@ class Answer(db.Model):
     answer_id = db.Column(db.Integer, primary_key=True)
     session_id = db.Column(db.Integer, db.ForeignKey('exam_sessions.session_id'), nullable=False)
     question_id = db.Column(db.Integer, db.ForeignKey('questions.question_id'), nullable=False)
-    answer_text = db.Column(db.Text, nullable=False)
+
+    answer_ciphertext = db.Column(db.LargeBinary, nullable=False)
+    answer_iv = db.Column(db.LargeBinary, nullable=False)
+    answer_tag = db.Column(db.LargeBinary, nullable=False)
+    integrity_hash = db.Column(db.String(64), nullable=False)
+    encrypted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    marks = db.Column(db.Integer, nullable=True)
 
     evaluation = db.relationship('Evaluation', backref='answer', uselist=False)
 

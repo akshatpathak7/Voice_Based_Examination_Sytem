@@ -121,6 +121,34 @@ input {
 
 <div class="container">
 
+<!-- FLASH MESSAGES -->
+{% with messages = get_flashed_messages() %}
+{% if messages %}
+<div class="card" style="border-left: 4px solid #2563eb; background: #eff6ff;">
+    {% for msg in messages %}
+    <p style="margin: 4px 0;">{{ msg }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<!-- CREATE STUDENT -->
+<div class="card">
+
+<div class="section-title">Create Student Account</div>
+
+<form action="/invigilator/create_student" method="post" style="display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end;">
+    <input type="text" name="full_name" placeholder="Full Name *" required>
+    <input type="text" name="username" placeholder="Username *" required>
+    <input type="email" name="email" placeholder="Email *" required>
+    <input type="password" name="password" placeholder="Password *" required>
+    <input type="text" name="registration_no" placeholder="Registration No. *" required>
+    <input type="text" name="phone_no" placeholder="Phone (optional)">
+    <button class="btn btn-success">Create Student</button>
+</form>
+
+</div>
+
 <!-- CREATE EXAM -->
 <div class="card">
 
