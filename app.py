@@ -115,7 +115,7 @@ def login():
         return redirect(url_for('invigilator_dashboard'))
 
     elif user.role == 'CANDIDATE':
-        return redirect(url_for('candidate_dashboard'))
+        return redirect(url_for('student_dashboard'))
 
     elif user.role == 'ADMIN':
         return redirect(url_for('admin_dashboard'))
@@ -125,14 +125,53 @@ def login():
 
 # ---------- DASHBOARDS ----------
 
-@app.route('/candidate/dashboard')
-def candidate_dashboard():
+@app.route('/student/dashboard')
+def student_dashboard():
 
     if 'user_id' not in session or session.get('role') != 'CANDIDATE':
         return redirect(url_for('show_login'))
 
-    return render_template('student_dashboard.html')
+    user_id = session['user_id']
 
+    candidate = Candidate.query.filter_by(reg_id=user_id).first()
+
+    if not candidate:
+        flash("Candidate profile not found.")
+        return redirect(url_for('show_login'))
+
+    # Check active session
+    active_session = ExamSession.query.filter_by(
+        candidate_id=candidate.candidate_id,
+        status='STARTED'
+    ).first()
+
+    # Get completed sessions for performance
+    completed_sessions = ExamSession.query.filter_by(
+        candidate_id=candidate.candidate_id,
+        status='ENDED'
+    ).all()
+
+    performance_data = []
+
+    for s in completed_sessions:
+        answers = Answer.query.filter_by(session_id=s.session_id).all()
+        total_marks = 0
+
+        for a in answers:
+            total_marks += a.marks or 0
+
+        exam = Exam.query.get(s.exam_id)
+
+        performance_data.append({
+            "exam_name": exam.exam_name if exam else "Unknown",
+            "marks": total_marks
+        })
+
+    return render_template(
+        'student_dashboard.html',
+        active_session=active_session,
+        performance_data=performance_data
+    )
 
 @app.route('/admin/dashboard')
 def admin_dashboard():

@@ -1,225 +1,147 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Invigilator Dashboard</title>
+    <title>Invigilator Dashboard</title>
 
-<script src="{{ url_for('static', filename='script.js') }}"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial;
+            background: #f4f6f9;
+        }
 
-<style>
+        .header {
+            background: #1e3a8a;
+            color: white;
+            padding: 15px 25px;
+            display: flex;
+            justify-content: space-between;
+        }
 
-/* Global Theme */
-body {
-    margin: 0;
-    font-family: 'Segoe UI', Arial;
-    background: #f0f4f8;
-}
+        .container {
+            width: 92%;
+            margin: 20px auto;
+        }
 
-/* Header */
-.header {
-    background: #1e3a8a;
-    color: white;
-    padding: 15px 30px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+        }
 
-.header h2 {
-    margin: 0;
-}
+        button {
+            padding: 8px 14px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            color: white;
+            background: #2563eb;
+        }
 
-.logout {
-    background: #dc2626;
-    color: white;
-    padding: 8px 14px;
-    text-decoration: none;
-    border-radius: 6px;
-}
+        .danger { background: #dc2626; }
+        .success { background: #16a34a; }
 
-/* Container */
-.container {
-    width: 92%;
-    margin: auto;
-    margin-top: 20px;
-}
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
 
-/* Card Layout */
-.card {
-    background: white;
-    padding: 20px;
-    border-radius: 10px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
+        table th, table td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            text-align: center;
+        }
 
-/* Sections */
-.section-title {
-    font-size: 18px;
-    font-weight: bold;
-    margin-bottom: 10px;
-    color: #1e3a8a;
-}
+        table th {
+            background: #2563eb;
+            color: white;
+        }
 
-/* Buttons */
-.btn {
-    padding: 8px 14px;
-    margin: 5px;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    color: white;
-    background: #2563eb;
-}
-
-.btn:hover {
-    background: #1d4ed8;
-}
-
-.btn-danger {
-    background: #dc2626;
-}
-
-.btn-success {
-    background: #16a34a;
-}
-
-/* Form */
-input {
-    padding: 8px;
-    margin: 5px;
-    border-radius: 5px;
-    border: 1px solid #ccc;
-}
-
-/* Item Card */
-.item {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    padding: 12px;
-    margin: 10px 0;
-    border-radius: 8px;
-}
-
-/* Flex Row */
-.flex {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-</style>
-
+    </style>
 </head>
 
 <body>
 
-<!-- HEADER -->
 <div class="header">
     <h2>Invigilator Control Panel</h2>
-    <a class="logout" href="/logout">Logout</a>
+    <a href="/logout" style="color:white;text-decoration:none;">Logout</a>
 </div>
 
 <div class="container">
 
 <!-- CREATE EXAM -->
 <div class="card">
-
-<div class="section-title">Create New Exam</div>
-
-<form action="/invigilator/create_exam" method="post">
-
-<input type="text" name="name" placeholder="Exam Name" required>
-
-<input type="number" name="duration" placeholder="Duration (minutes)" required>
-
-<button class="btn btn-success">Create Exam</button>
-
-</form>
-
+    <h3>Create New Exam</h3>
+    <form action="/invigilator/create_exam" method="post">
+        <input type="text" name="name" placeholder="Exam Name" required>
+        <input type="number" name="duration" placeholder="Duration (minutes)" required>
+        <button>Create</button>
+    </form>
 </div>
 
-<!-- EXAM LIST -->
+<!-- EXAMS LIST -->
 <div class="card">
+    <h3>All Exams</h3>
 
-<div class="section-title">Available Exams</div>
+    <table>
+        <tr>
+            <th>Name</th>
+            <th>Duration</th>
+            <th>Status</th>
+            <th>Actions</th>
+        </tr>
 
-{% if exams|length == 0 %}
-<p>No exams created yet.</p>
-{% endif %}
+        {% for e in exams %}
+        <tr>
+            <td>{{ e.exam_name }}</td>
+            <td>{{ e.duration }} mins</td>
+            <td>{{ e.status }}</td>
+            <td>
 
-{% for e in exams %}
+                {% if e.status == 'CREATED' %}
+                    <a href="/invigilator/start_exam/{{ e.exam_id }}">
+                        <button class="success">Start</button>
+                    </a>
+                {% elif e.status == 'LIVE' %}
+                    <a href="/invigilator/end_exam/{{ e.exam_id }}">
+                        <button class="danger">End</button>
+                    </a>
+                {% else %}
+                    Exam Ended
+                {% endif %}
 
-<div class="item flex">
-
-<div>
-<b>{{ e.exam_name }}</b>
-</div>
-
-<div>
-<button class="btn"
-onclick="loadQuestions({{ e.exam_id }})">
-Manage Questions
-</button>
-
-<a href="/invigilator/start_exam/{{ e.exam_id }}">
-<button class="btn btn-success">Start Exam</button>
-</a>
-</div>
-
-</div>
-
-{% endfor %}
-
-</div>
-
-<!-- QUESTION MANAGEMENT -->
-<div class="card" id="questionArea">
-<div class="section-title">
-Select an exam to manage questions
-</div>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
 </div>
 
 <!-- SESSIONS -->
 <div class="card">
+    <h3>Exam Sessions</h3>
 
-<div class="section-title">Exam Sessions</div>
+    {% for s in sessions %}
+        <p>
+            Session {{ s.session_id }} |
+            Candidate {{ s.candidate_id }} |
+            Status: {{ s.status }}
 
-{% if sessions|length == 0 %}
-<p>No exam sessions yet.</p>
-{% endif %}
-
-{% for s in sessions %}
-
-<div class="item flex">
-
-<div>
-Session {{ s.session_id }} –
-Candidate {{ s.candidate_id }}
+            <button onclick="viewAnswers({{ s.session_id }})">Evaluate</button>
+        </p>
+    {% endfor %}
 </div>
 
-<div>
-<button class="btn"
-onclick="viewAnswers({{ s.session_id }})">
-Evaluate Answers
-</button>
-</div>
-
-</div>
-
-{% endfor %}
-
-</div>
-
-<!-- ANSWER EVALUATION -->
+<!-- ANSWER AREA -->
 <div class="card" id="answerArea">
-
-<div class="section-title">
-Click on a session to evaluate answers
+    <h3>Evaluation Area</h3>
 </div>
 
 </div>
 
-</div>
+<script src="{{ url_for('static', filename='script.js') }}"></script>
 
 </body>
 </html>
