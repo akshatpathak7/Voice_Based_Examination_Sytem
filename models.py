@@ -1,3 +1,11 @@
+import sqlalchemy as _sa
+
+# SQLAlchemy packaging on some Python versions can omit a module-level
+# "__all__" attribute which older Flask-SQLAlchemy expects. Ensure it
+# exists to avoid AttributeError in the extension's attribute lookup.
+if not hasattr(_sa, "__all__"):
+    _sa.__all__ = [n for n in dir(_sa) if not n.startswith("_")]
+
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
