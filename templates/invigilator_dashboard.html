@@ -185,11 +185,11 @@ input {
 
 <div>
 <button class="btn"
-onclick="loadQuestions({{ e.exam_id }})">
+onclick="loadQuestions({{ e._id }})">
 Manage Questions
 </button>
 
-<a href="/invigilator/start_exam/{{ e.exam_id }}">
+<a href="/invigilator/start_exam/{{ e._id }}">
 <button class="btn btn-success">Start Exam</button>
 </a>
 </div>
@@ -221,13 +221,13 @@ Select an exam to manage questions
 <div class="item flex">
 
 <div>
-Session {{ s.session_id }} –
+Session {{ s._id }} –
 Candidate {{ s.candidate_id }}
 </div>
 
 <div>
 <button class="btn"
-onclick="viewAnswers({{ s.session_id }})">
+onclick="viewAnswers({{ s._id }})">
 Evaluate Answers
 </button>
 </div>

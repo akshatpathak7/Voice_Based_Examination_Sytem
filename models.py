@@ -1,139 +1,31 @@
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from pymongo import MongoClient, ReturnDocument
 
-db = SQLAlchemy()
+_client = None
+_db = None
 
-# -----------------------------
-# REGISTRATION
-# -----------------------------
-class Registration(db.Model):
-    __tablename__ = 'registration'
 
-    reg_id = db.Column(db.Integer, primary_key=True)
-    full_name = db.Column(db.String(100), nullable=False)
-    username = db.Column(db.String(50), unique=True, nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(
-        db.Enum('ADMIN', 'INVIGILATOR', 'CANDIDATE', name='user_roles'),
-        nullable=False
+def init_app(app):
+    global _client, _db
+    mongo_uri = app.config.get("MONGO_URI", "mongodb://localhost:27017/")
+    db_name = app.config.get("MONGO_DB_NAME", "exam_db")
+    _client = MongoClient(mongo_uri)
+    _db = _client[db_name]
+
+    _db.users.create_index("username", unique=True)
+    _db.users.create_index("email", unique=True)
+    _db.candidates.create_index("registration_no", unique=True)
+
+
+def get_db():
+    return _db
+
+
+def get_next_id(collection_name):
+    """Auto-incrementing integer ID using a counters collection."""
+    result = _db.counters.find_one_and_update(
+        {"_id": collection_name},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
     )
-    phone_no = db.Column(db.String(15))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    session_token = db.Column(db.String(64), nullable=True)
-
-    # Relationships
-    login = db.relationship('Login', backref='registration', uselist=False)
-    candidate = db.relationship('Candidate', backref='registration', uselist=False)
-    exams = db.relationship('Exam', backref='invigilator')
-
-
-# -----------------------------
-# LOGIN
-# -----------------------------
-class Login(db.Model):
-    __tablename__ = 'login'
-
-    login_id = db.Column(db.Integer, primary_key=True)
-    reg_id = db.Column(db.Integer, db.ForeignKey('registration.reg_id'), nullable=False)
-    username = db.Column(db.String(50), nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    last_login = db.Column(db.DateTime)
-
-
-# -----------------------------
-# CANDIDATES
-# -----------------------------
-class Candidate(db.Model):
-    __tablename__ = 'candidates'
-
-    candidate_id = db.Column(db.Integer, primary_key=True)
-    reg_id = db.Column(db.Integer, db.ForeignKey('registration.reg_id'), nullable=False)
-    registration_no = db.Column(db.String(50), unique=True, nullable=False)
-
-    exam_sessions = db.relationship('ExamSession', backref='candidate')
-
-
-# -----------------------------
-# EXAMS
-# -----------------------------
-class Exam(db.Model):
-    __tablename__ = 'exams'
-
-    exam_id = db.Column(db.Integer, primary_key=True)
-    exam_name = db.Column(db.String(100), nullable=False)
-    duration = db.Column(db.Integer, nullable=False)
-    total_marks = db.Column(db.Integer)
-    created_by = db.Column(db.Integer, db.ForeignKey('registration.reg_id'), nullable=False)
-
-    enc_key_ciphertext = db.Column(db.LargeBinary, nullable=True)
-    enc_key_iv = db.Column(db.LargeBinary, nullable=True)
-    enc_key_tag = db.Column(db.LargeBinary, nullable=True)
-
-    questions = db.relationship('Question', backref='exam')
-    sessions = db.relationship('ExamSession', backref='exam')
-
-
-# -----------------------------
-# QUESTIONS
-# -----------------------------
-class Question(db.Model):
-    __tablename__ = 'questions'
-
-    question_id = db.Column(db.Integer, primary_key=True)
-    exam_id = db.Column(db.Integer, db.ForeignKey('exams.exam_id'), nullable=False)
-    question_text = db.Column(db.Text, nullable=False)
-
-    answers = db.relationship('Answer', backref='question')
-
-
-# -----------------------------
-# EXAM SESSIONS
-# -----------------------------
-class ExamSession(db.Model):
-    __tablename__ = 'exam_sessions'
-
-    session_id = db.Column(db.Integer, primary_key=True)
-    exam_id = db.Column(db.Integer, db.ForeignKey('exams.exam_id'), nullable=False)
-    candidate_id = db.Column(db.Integer, db.ForeignKey('candidates.candidate_id'), nullable=False)
-    start_time = db.Column(db.DateTime, default=datetime.utcnow)
-    end_time = db.Column(db.DateTime)
-    status = db.Column(
-        db.Enum('STARTED', 'SUBMITTED', 'ENDED', name='session_status'),
-        default='STARTED'
-    )
-
-    answers = db.relationship('Answer', backref='session')
-
-
-# -----------------------------
-# ANSWERS
-# -----------------------------
-class Answer(db.Model):
-    __tablename__ = 'answers'
-
-    answer_id = db.Column(db.Integer, primary_key=True)
-    session_id = db.Column(db.Integer, db.ForeignKey('exam_sessions.session_id'), nullable=False)
-    question_id = db.Column(db.Integer, db.ForeignKey('questions.question_id'), nullable=False)
-
-    answer_ciphertext = db.Column(db.LargeBinary, nullable=False)
-    answer_iv = db.Column(db.LargeBinary, nullable=False)
-    answer_tag = db.Column(db.LargeBinary, nullable=False)
-    integrity_hash = db.Column(db.String(64), nullable=False)
-    encrypted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-
-    marks = db.Column(db.Integer, nullable=True)
-
-    evaluation = db.relationship('Evaluation', backref='answer', uselist=False)
-
-
-# -----------------------------
-# EVALUATIONS
-# -----------------------------
-class Evaluation(db.Model):
-    __tablename__ = 'evaluations'
-
-    evaluation_id = db.Column(db.Integer, primary_key=True)
-    answer_id = db.Column(db.Integer, db.ForeignKey('answers.answer_id'), unique=True, nullable=False)
-    marks_awarded = db.Column(db.Integer)
-    evaluated_by = db.Column(db.Integer, db.ForeignKey('registration.reg_id'))
+    return result["seq"]

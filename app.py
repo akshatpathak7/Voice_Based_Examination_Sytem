@@ -2,9 +2,9 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 import os
 import re
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 
-from models import db, Registration, Exam, Question, Answer, ExamSession, Candidate
+from models import init_app as init_db, get_db, get_next_id
 from werkzeug.security import check_password_hash, generate_password_hash
 from crypto_utils import (
     load_master_key,
@@ -23,11 +23,11 @@ except ImportError:
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "secretkey123")
 
-# -----  DATABASE PATH -----
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///exam.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# ----- DATABASE -----
+app.config["MONGO_URI"] = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+app.config["MONGO_DB_NAME"] = os.environ.get("MONGO_DB_NAME", "exam_db")
 
-db.init_app(app)
+init_db(app)
 
 # ----- LOAD MASTER ENCRYPTION KEY -----
 _master_key = load_master_key()
@@ -49,12 +49,10 @@ def normalize_answer(question_text, answer_text):
     text = re.sub(r"\bim\b", "I'm", text, flags=re.IGNORECASE)
     text = re.sub(r"\bi\b", "I", text)
 
-    # Remove common filler words
     fillers_pattern = r"\b(um+|uh+|erm|like|you know|sort of|kind of)\b"
     text = re.sub(fillers_pattern, "", text, flags=re.IGNORECASE)
     text = " ".join(text.split())
 
-    # Fix a/an usage based on following word
     words = text.split()
     for idx in range(len(words) - 1):
         if words[idx].lower() in ("a", "an"):
@@ -68,29 +66,25 @@ def normalize_answer(question_text, answer_text):
 
     text = " ".join(words)
 
-    # Capitalize first character and start of new sentences
     if text:
         text = text[0].upper() + text[1:]
-    text = re.sub(r"(?<=[\.\!\?]\s)([a-z])", lambda match: match.group(1).upper(), text)
+    text = re.sub(r"(?<=[\.\!\?]\s)([a-z])", lambda m: m.group(1).upper(), text)
 
-    # Ensure trailing punctuation
     if text and text[-1] not in ".!?":
         text += "."
 
-    # Simple question-specific rule example
     if question_text and "capital of" in question_text.lower():
         text = text.title()
 
-    # Optional grammar correction step for better contextual correctness
     if _grammar_tool is not None:
         try:
             matches = _grammar_tool.check(text)
             text = language_tool_python.utils.correct(text, matches)
         except Exception:
-            # If grammar tool fails for any reason, fall back to rule-based result
             pass
 
     return text
+
 
 # ---------- ROUTES ----------
 
@@ -108,35 +102,34 @@ def show_login():
 # ---------- PROCESS LOGIN ----------
 @app.route('/login', methods=['POST'])
 def login():
-
+    db = get_db()
     username = request.form['username']
     password = request.form['password']
 
-    user = Registration.query.filter_by(username=username).first()
+    user = db.users.find_one({"username": username})
 
     if not user:
         flash("Invalid username or password")
         return redirect(url_for('show_login'))
 
-    if not check_password_hash(user.password_hash, password):
+    if not check_password_hash(user["password_hash"], password):
         flash("Invalid username or password")
         return redirect(url_for('show_login'))
 
     token = secrets.token_hex(32)
-    user.session_token = token
-    db.session.commit()
+    db.users.update_one({"_id": user["_id"]}, {"$set": {"session_token": token}})
 
-    session['user_id'] = user.reg_id
-    session['role'] = user.role
+    session['user_id'] = user["_id"]
+    session['role'] = user["role"]
     session['session_token'] = token
 
-    if user.role == 'INVIGILATOR':
+    if user["role"] == 'INVIGILATOR':
         return redirect(url_for('invigilator_dashboard'))
 
-    elif user.role == 'CANDIDATE':
+    elif user["role"] == 'CANDIDATE':
         return redirect(url_for('candidate_dashboard'))
 
-    elif user.role == 'ADMIN':
+    elif user["role"] == 'ADMIN':
         return redirect(url_for('admin_dashboard'))
 
     return redirect(url_for('index'))
@@ -150,14 +143,15 @@ def verify_session():
     When another device logs in with the same credentials, the DB token
     is replaced, invalidating all previous sessions for that user.
     """
+    db = get_db()
     uid = session.get('user_id')
     token = session.get('session_token')
     if not uid or not token:
         return False
-    user = Registration.query.get(uid)
+    user = db.users.find_one({"_id": uid})
     if not user:
         return False
-    return user.session_token == token
+    return user.get("session_token") == token
 
 
 # ---------- DASHBOARDS ----------
@@ -189,6 +183,7 @@ def admin_dashboard():
 
 @app.route('/invigilator/create_student', methods=['POST'])
 def create_student():
+    db = get_db()
     allowed_roles = ('INVIGILATOR', 'ADMIN')
     if session.get('role') not in allowed_roles:
         return jsonify({"error": "unauthorized"}), 401
@@ -204,35 +199,37 @@ def create_student():
         flash("All required fields must be filled.")
         return redirect(request.referrer or url_for('invigilator_dashboard'))
 
-    if Registration.query.filter_by(username=username).first():
+    if db.users.find_one({"username": username}):
         flash(f"Username '{username}' already exists.")
         return redirect(request.referrer or url_for('invigilator_dashboard'))
 
-    if Registration.query.filter_by(email=email).first():
+    if db.users.find_one({"email": email}):
         flash(f"Email '{email}' already exists.")
         return redirect(request.referrer or url_for('invigilator_dashboard'))
 
-    if Candidate.query.filter_by(registration_no=registration_no).first():
+    if db.candidates.find_one({"registration_no": registration_no}):
         flash(f"Registration number '{registration_no}' already exists.")
         return redirect(request.referrer or url_for('invigilator_dashboard'))
 
-    reg = Registration(
-        full_name=full_name,
-        username=username,
-        email=email,
-        password_hash=generate_password_hash(password),
-        role='CANDIDATE',
-        phone_no=phone or None,
-    )
-    db.session.add(reg)
-    db.session.flush()
+    reg_id = get_next_id("users")
+    db.users.insert_one({
+        "_id": reg_id,
+        "full_name": full_name,
+        "username": username,
+        "email": email,
+        "password_hash": generate_password_hash(password),
+        "role": "CANDIDATE",
+        "phone_no": phone or None,
+        "created_at": datetime.now(timezone.utc),
+        "session_token": None,
+    })
 
-    candidate = Candidate(
-        reg_id=reg.reg_id,
-        registration_no=registration_no,
-    )
-    db.session.add(candidate)
-    db.session.commit()
+    candidate_id = get_next_id("candidates")
+    db.candidates.insert_one({
+        "_id": candidate_id,
+        "reg_id": reg_id,
+        "registration_no": registration_no,
+    })
 
     flash(f"Student '{full_name}' created successfully (username: {username}).")
     return redirect(request.referrer or url_for('invigilator_dashboard'))
@@ -246,8 +243,9 @@ def invigilator_dashboard():
     if session.get('role') != 'INVIGILATOR':
         return redirect(url_for('show_login'))
 
-    exams = Exam.query.all()
-    sessions = ExamSession.query.all()
+    db = get_db()
+    exams = list(db.exams.find())
+    sessions = list(db.exam_sessions.find())
 
     return render_template(
         'invigilator_dashboard.html',
@@ -260,18 +258,18 @@ def invigilator_dashboard():
 
 @app.route('/invigilator/get_questions/<int:exam_id>')
 def get_exam_questions(exam_id):
+    db = get_db()
 
     if session.get('role') != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
-    questions = Question.query.filter_by(exam_id=exam_id).all()
+    questions = list(db.questions.find({"exam_id": exam_id}))
 
     data = []
-
     for q in questions:
         data.append({
-            "id": q.question_id,
-            "text": q.question_text
+            "id": q["_id"],
+            "text": q["question_text"]
         })
 
     return jsonify(data)
@@ -279,48 +277,47 @@ def get_exam_questions(exam_id):
 
 @app.route('/invigilator/add_question', methods=['POST'])
 def add_question():
+    db = get_db()
 
     if session.get('role') != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
-    exam_id = request.form['exam_id']
+    exam_id = int(request.form['exam_id'])
     text = request.form['text']
 
-    q = Question(exam_id=exam_id, question_text=text)
-
-    db.session.add(q)
-    db.session.commit()
+    q_id = get_next_id("questions")
+    db.questions.insert_one({
+        "_id": q_id,
+        "exam_id": exam_id,
+        "question_text": text,
+    })
 
     return jsonify({"status": "added"})
 
 
 @app.route('/invigilator/update_question', methods=['POST'])
 def update_question():
+    db = get_db()
 
     if session.get('role') != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
-    qid = request.form['qid']
+    qid = int(request.form['qid'])
     text = request.form['text']
 
-    q = Question.query.get(qid)
-    q.question_text = text
-
-    db.session.commit()
+    db.questions.update_one({"_id": qid}, {"$set": {"question_text": text}})
 
     return jsonify({"status": "updated"})
 
 
 @app.route('/invigilator/delete_question/<int:qid>')
 def delete_question(qid):
+    db = get_db()
 
     if session.get('role') != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
-    q = Question.query.get(qid)
-
-    db.session.delete(q)
-    db.session.commit()
+    db.questions.delete_one({"_id": qid})
 
     return jsonify({"status": "deleted"})
 
@@ -329,60 +326,64 @@ def delete_question(qid):
 
 @app.route('/invigilator/save_marks', methods=['POST'])
 def save_marks():
+    db = get_db()
 
     if session.get('role') != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
-    answer_id = request.form['answer_id']
-    marks = request.form['marks']
+    answer_id = int(request.form['answer_id'])
+    marks = int(request.form['marks'])
 
-    ans = Answer.query.get(answer_id)
-
-    ans.marks = marks
-
-    db.session.commit()
+    db.answers.update_one({"_id": answer_id}, {"$set": {"marks": marks}})
 
     return jsonify({"status": "marks saved"})
 
 
 @app.route('/invigilator/get_answers/<int:session_id>')
 def get_answers(session_id):
+    db = get_db()
 
     if session.get('role') != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
-    exam_session = ExamSession.query.get(session_id)
-    if not exam_session:
+    exam_sess = db.exam_sessions.find_one({"_id": session_id})
+    if not exam_sess:
         return jsonify({"error": "session not found"}), 404
 
-    exam = Exam.query.get(exam_session.exam_id)
+    exam = db.exams.find_one({"_id": exam_sess["exam_id"]})
     exam_key = decrypt_exam_key(
-        exam.enc_key_ciphertext, exam.enc_key_iv, exam.enc_key_tag, _master_key
+        bytes(exam["enc_key_ciphertext"]),
+        bytes(exam["enc_key_iv"]),
+        bytes(exam["enc_key_tag"]),
+        _master_key,
     )
 
-    answers = Answer.query.filter_by(session_id=session_id).all()
+    answers = list(db.answers.find({"session_id": session_id}))
     data = []
 
     for a in answers:
-        q = Question.query.get(a.question_id)
+        q = db.questions.find_one({"_id": a["question_id"]})
 
         try:
             plaintext = decrypt_answer(
-                a.answer_ciphertext, a.answer_iv, a.answer_tag, exam_key
+                bytes(a["answer_ciphertext"]),
+                bytes(a["answer_iv"]),
+                bytes(a["answer_tag"]),
+                exam_key,
             )
             tampered = not verify_integrity_hash(
-                _master_key, plaintext, a.question_id,
-                session_id, a.encrypted_at, a.integrity_hash
+                _master_key, plaintext, a["question_id"],
+                session_id, a["encrypted_at"], a["integrity_hash"]
             )
         except Exception:
             plaintext = "[DECRYPTION FAILED — answer may have been tampered with]"
             tampered = True
 
         data.append({
-            "answer_id": a.answer_id,
-            "question": q.question_text if q else "Unknown",
+            "answer_id": a["_id"],
+            "question": q["question_text"] if q else "Unknown",
             "answer": plaintext,
-            "marks": a.marks,
+            "marks": a.get("marks"),
             "tampered": tampered,
         })
 
@@ -391,16 +392,14 @@ def get_answers(session_id):
 
 @app.route('/invigilator/get_result/<int:session_id>')
 def get_result(session_id):
+    db = get_db()
 
     if session.get('role') != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
-    answers = Answer.query.filter_by(session_id=session_id).all()
+    answers = list(db.answers.find({"session_id": session_id}))
 
-    total = 0
-
-    for a in answers:
-        total += a.marks or 0
+    total = sum(a.get("marks", 0) or 0 for a in answers)
 
     return jsonify({"total_marks": total})
 
@@ -409,6 +408,7 @@ def get_result(session_id):
 
 @app.route('/api/questions')
 def get_questions():
+    db = get_db()
 
     if 'user_id' not in session:
         return jsonify({"error": "not logged in"}), 401
@@ -417,15 +417,15 @@ def get_questions():
         session.clear()
         return jsonify({"error": "session_expired"}), 401
 
-    exam = Exam.query.first()
+    exam = db.exams.find_one()
 
-    questions = Question.query.filter_by(exam_id=exam.exam_id).all()
+    questions = list(db.questions.find({"exam_id": exam["_id"]}))
 
     data = []
     for q in questions:
         data.append({
-            "id": q.question_id,
-            "text": q.question_text
+            "id": q["_id"],
+            "text": q["question_text"]
         })
 
     return jsonify(data)
@@ -433,6 +433,7 @@ def get_questions():
 
 @app.route('/api/save_answer', methods=['POST'])
 def save_answer():
+    db = get_db()
 
     if 'exam_session_id' not in session:
         return jsonify({"error": "session not started"}), 400
@@ -445,38 +446,39 @@ def save_answer():
     question_id = data['question_id']
     session_id = session['exam_session_id']
 
-    question = Question.query.get(question_id)
+    question = db.questions.find_one({"_id": question_id})
     normalized_answer = normalize_answer(
-        question.question_text if question else "",
+        question["question_text"] if question else "",
         data['answer']
     )
 
-    # --- Retrieve the per-exam encryption key ---
-    exam_session = ExamSession.query.get(session_id)
-    exam = Exam.query.get(exam_session.exam_id)
+    exam_sess = db.exam_sessions.find_one({"_id": session_id})
+    exam = db.exams.find_one({"_id": exam_sess["exam_id"]})
     exam_key = decrypt_exam_key(
-        exam.enc_key_ciphertext, exam.enc_key_iv, exam.enc_key_tag, _master_key
+        bytes(exam["enc_key_ciphertext"]),
+        bytes(exam["enc_key_iv"]),
+        bytes(exam["enc_key_tag"]),
+        _master_key,
     )
 
-    # --- Encrypt the normalised answer ---
     ciphertext, iv, tag = encrypt_answer(normalized_answer, exam_key)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     integrity = compute_integrity_hash(
         _master_key, normalized_answer, question_id, session_id, now
     )
 
-    answer = Answer(
-        session_id=session_id,
-        question_id=question_id,
-        answer_ciphertext=ciphertext,
-        answer_iv=iv,
-        answer_tag=tag,
-        integrity_hash=integrity,
-        encrypted_at=now,
-    )
-
-    db.session.add(answer)
-    db.session.commit()
+    answer_id = get_next_id("answers")
+    db.answers.insert_one({
+        "_id": answer_id,
+        "session_id": session_id,
+        "question_id": question_id,
+        "answer_ciphertext": ciphertext,
+        "answer_iv": iv,
+        "answer_tag": tag,
+        "integrity_hash": integrity,
+        "encrypted_at": now,
+        "marks": None,
+    })
 
     return jsonify({
         "status": "saved",
@@ -486,6 +488,7 @@ def save_answer():
 
 @app.route('/api/start_exam')
 def start_exam():
+    db = get_db()
 
     if 'user_id' not in session:
         return jsonify({"error": "not logged in"}), 401
@@ -496,29 +499,31 @@ def start_exam():
 
     user_id = session['user_id']
 
-    candidate = Candidate.query.filter_by(reg_id=user_id).first()
+    candidate = db.candidates.find_one({"reg_id": user_id})
 
     if not candidate:
         return jsonify({"error": "Candidate profile not found for this user"}), 400
 
-    exam = Exam.query.first()
+    exam = db.exams.find_one()
 
     if not exam:
         return jsonify({"error": "No exam available"}), 400
 
-    new_session = ExamSession(
-        exam_id=exam.exam_id,
-        candidate_id=candidate.candidate_id
-    )
+    session_id = get_next_id("exam_sessions")
+    db.exam_sessions.insert_one({
+        "_id": session_id,
+        "exam_id": exam["_id"],
+        "candidate_id": candidate["_id"],
+        "start_time": datetime.now(timezone.utc),
+        "end_time": None,
+        "status": "STARTED",
+    })
 
-    db.session.add(new_session)
-    db.session.commit()
-
-    session['exam_session_id'] = new_session.session_id
+    session['exam_session_id'] = session_id
 
     return jsonify({
-        "session_id": new_session.session_id,
-        "duration_minutes": exam.duration,
+        "session_id": session_id,
+        "duration_minutes": exam["duration"],
     })
 
 
