@@ -1,21 +1,35 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+import os
 import re
+from datetime import datetime
+
 from models import db, Registration, Exam, Question, Answer, ExamSession, Candidate
 from werkzeug.security import check_password_hash
+from crypto_utils import (
+    load_master_key,
+    decrypt_exam_key,
+    encrypt_answer,
+    decrypt_answer,
+    compute_integrity_hash,
+    verify_integrity_hash,
+)
 
 try:
     import language_tool_python
-except ImportError:  # graceful fallback if not installed
+except ImportError:
     language_tool_python = None
 
 app = Flask(__name__)
-app.secret_key = "secretkey123"
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "secretkey123")
 
 # -----  DATABASE PATH -----
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///exam.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
+
+# ----- LOAD MASTER ENCRYPTION KEY -----
+_master_key = load_master_key()
 
 _grammar_tool = None
 if language_tool_python is not None:
@@ -256,19 +270,39 @@ def get_answers(session_id):
     if session.get('role') != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
-    answers = Answer.query.filter_by(session_id=session_id).all()
+    exam_session = ExamSession.query.get(session_id)
+    if not exam_session:
+        return jsonify({"error": "session not found"}), 404
 
+    exam = Exam.query.get(exam_session.exam_id)
+    exam_key = decrypt_exam_key(
+        exam.enc_key_ciphertext, exam.enc_key_iv, exam.enc_key_tag, _master_key
+    )
+
+    answers = Answer.query.filter_by(session_id=session_id).all()
     data = []
 
     for a in answers:
-
         q = Question.query.get(a.question_id)
+
+        try:
+            plaintext = decrypt_answer(
+                a.answer_ciphertext, a.answer_iv, a.answer_tag, exam_key
+            )
+            tampered = not verify_integrity_hash(
+                _master_key, plaintext, a.question_id,
+                session_id, a.encrypted_at, a.integrity_hash
+            )
+        except Exception:
+            plaintext = "[DECRYPTION FAILED — answer may have been tampered with]"
+            tampered = True
 
         data.append({
             "answer_id": a.answer_id,
             "question": q.question_text if q else "Unknown",
-            "answer": a.answer_text,
-            "marks": a.marks
+            "answer": plaintext,
+            "marks": a.marks,
+            "tampered": tampered,
         })
 
     return jsonify(data)
@@ -319,17 +353,37 @@ def save_answer():
         return jsonify({"error": "session not started"}), 400
 
     data = request.get_json()
+    question_id = data['question_id']
+    session_id = session['exam_session_id']
 
-    question = Question.query.get(data['question_id'])
+    question = Question.query.get(question_id)
     normalized_answer = normalize_answer(
         question.question_text if question else "",
         data['answer']
     )
 
+    # --- Retrieve the per-exam encryption key ---
+    exam_session = ExamSession.query.get(session_id)
+    exam = Exam.query.get(exam_session.exam_id)
+    exam_key = decrypt_exam_key(
+        exam.enc_key_ciphertext, exam.enc_key_iv, exam.enc_key_tag, _master_key
+    )
+
+    # --- Encrypt the normalised answer ---
+    ciphertext, iv, tag = encrypt_answer(normalized_answer, exam_key)
+    now = datetime.utcnow()
+    integrity = compute_integrity_hash(
+        _master_key, normalized_answer, question_id, session_id, now
+    )
+
     answer = Answer(
-        session_id=session['exam_session_id'],
-        question_id=data['question_id'],
-        answer_text=normalized_answer
+        session_id=session_id,
+        question_id=question_id,
+        answer_ciphertext=ciphertext,
+        answer_iv=iv,
+        answer_tag=tag,
+        integrity_hash=integrity,
+        encrypted_at=now,
     )
 
     db.session.add(answer)
@@ -337,7 +391,7 @@ def save_answer():
 
     return jsonify({
         "status": "saved",
-        "normalized_answer": answer.answer_text
+        "normalized_answer": normalized_answer
     })
 
 
@@ -370,6 +424,12 @@ def start_exam():
     session['exam_session_id'] = new_session.session_id
 
     return jsonify({"session_id": new_session.session_id})
+
+
+# ---------- EXAM SUBMITTED ----------
+@app.route('/exam/submitted')
+def exam_submitted():
+    return render_template('exam_submitted.html')
 
 
 # ---------- LOGOUT ----------

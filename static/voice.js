@@ -17,8 +17,12 @@
     answers: [],
     isListening: false,
     examActive: false,
+    ttsActive: false,
     restartTimer: null,
+    cooldownUntil: 0,
   };
+
+  const COOLDOWN_AFTER_TTS_MS = 1200;
 
   // ----- DOM refs (populated on DOMContentLoaded) -----
   let els = {};
@@ -71,7 +75,7 @@
 
   function handleRecognitionEnd() {
     setListeningState(false);
-    if (state.examActive) {
+    if (state.examActive && !state.ttsActive) {
       state.restartTimer = setTimeout(safeStartRecognition, 300);
     }
   }
@@ -112,6 +116,12 @@
     if (finalTranscript) {
       const normalized = normalize(finalTranscript);
       showFinal(normalized);
+
+      if (Date.now() < state.cooldownUntil) {
+        log("Ignored (cooldown — mic settling)");
+        return;
+      }
+
       processTranscript(normalized);
     }
   }
@@ -189,32 +199,47 @@
   const COMMANDS = {
     next: {
       synonyms: [
-        "next question", "next", "go next", "move on",
-        "next one", "agle question", "agle", "agla",
+        "next question", "go next", "move on", "move to next",
+        "next one please", "next one", "agle question",
         "agla question", "agla sawal",
       ],
       action: cmdNextQuestion,
     },
+    skip: {
+      synonyms: [
+        "skip question", "skip this", "skip this question",
+        "leave this", "come back later",
+      ],
+      action: cmdSkipQuestion,
+    },
     repeat: {
       synonyms: [
-        "repeat question", "repeat", "say again", "say that again",
-        "once more", "dubara", "phir se", "phir se bolo",
+        "repeat question", "say again", "say that again",
+        "repeat that", "once more", "phir se", "phir se bolo",
         "repeat karo", "dobara bolo",
       ],
       action: cmdRepeatQuestion,
     },
+    clear: {
+      synonyms: [
+        "clear answer", "delete answer", "redo answer",
+        "erase answer", "remove answer", "clear my answer",
+        "i want to redo", "answer dobara",
+      ],
+      action: cmdClearAnswer,
+    },
     submit: {
       synonyms: [
-        "submit exam", "submit", "finish exam", "end exam",
-        "i am done", "exam khatam", "submit karo", "done",
-        "finish", "that's all", "exam over",
+        "submit exam", "finish exam", "end exam",
+        "i am done", "exam khatam", "submit karo",
+        "exam over", "exam finish",
       ],
       action: cmdSubmitExam,
     },
     help: {
       synonyms: [
-        "help", "help me", "commands", "what can i say",
-        "instructions", "guide",
+        "help me", "help please", "what can i say",
+        "list commands", "voice commands",
       ],
       action: cmdHelp,
     },
@@ -295,6 +320,18 @@
   //  5. Transcript Processing
   // ============================================================
   function processTranscript(text) {
+    // Check for "go to question N" pattern before fuzzy matching
+    const goToMatch = text.match(
+      /(?:go\s*(?:to|back\s*to)?|question)\s*(\d+)/
+    );
+    if (goToMatch) {
+      const qNum = parseInt(goToMatch[1], 10);
+      if (qNum >= 1 && qNum <= state.questions.length) {
+        cmdGoToQuestion(qNum);
+        return;
+      }
+    }
+
     const cmd = matchCommand(text);
 
     if (cmd) {
@@ -307,10 +344,19 @@
     if (state.currentIndex >= 0 && state.currentIndex < state.questions.length) {
       state.answers[state.currentIndex] = text;
       updateAnswerDisplay();
-      speak("Answer recorded. Say next question to continue.");
+      speak("Answer recorded. You may continue when ready.");
       log(`Answer for Q${state.currentIndex + 1}: "${text}"`);
     } else if (state.currentIndex === -1) {
       speak("Say next question to hear the first question.");
+    } else if (state.currentIndex >= state.questions.length) {
+      const skipped = findSkippedQuestions();
+      if (skipped.length > 0) {
+        speak(
+          `You are past the last question. Say go to question ${skipped[0]} to answer a skipped question, or submit exam to finish.`
+        );
+      } else {
+        speak("All questions are answered. Say submit exam to finish.");
+      }
     }
   }
 
@@ -328,11 +374,76 @@
       log(`Question ${qNum} presented`);
     } else {
       state.currentIndex = state.questions.length;
-      speak(
-        "You have answered all the questions. Say submit exam to finish, or say a question number to go back."
-      );
+      const skipped = findSkippedQuestions();
+      let msg = "You have reached the end of the exam. ";
+      if (skipped.length > 0) {
+        msg += `You have ${skipped.length} unanswered question${skipped.length > 1 ? "s" : ""}: ${skipped.join(", ")}. Say go to question followed by the number to answer them. `;
+      }
+      msg += "Say submit exam to finish.";
+      speak(msg);
       log("All questions completed");
     }
+  }
+
+  function cmdSkipQuestion() {
+    if (state.currentIndex < 0) {
+      speak("No question to skip. Say next question to begin.");
+      return;
+    }
+    if (state.currentIndex >= state.questions.length) {
+      speak("You are already past the last question.");
+      return;
+    }
+
+    const skippedNum = state.currentIndex + 1;
+    log(`Question ${skippedNum} skipped`);
+
+    state.currentIndex++;
+    if (state.currentIndex < state.questions.length) {
+      const qNum = state.currentIndex + 1;
+      const qText = state.questions[state.currentIndex];
+      showQuestion(qNum, qText);
+      speak(`Question ${skippedNum} skipped. Question ${qNum}. ${qText}`);
+    } else {
+      state.currentIndex = state.questions.length;
+      speak(
+        `Question ${skippedNum} skipped. You have reached the end. ` +
+        `Say go to question ${skippedNum} to go back, or submit exam to finish.`
+      );
+    }
+  }
+
+  function cmdGoToQuestion(qNum) {
+    const idx = qNum - 1;
+    state.currentIndex = idx;
+    const qText = state.questions[idx];
+    showQuestion(qNum, qText);
+
+    const existingAnswer = state.answers[idx];
+    let msg = `Going to question ${qNum}. ${qText}`;
+    if (existingAnswer) {
+      msg += ` Your current answer is: ${existingAnswer}. Say clear answer to remove it and answer again.`;
+    }
+    speak(msg);
+    log(`Jumped to question ${qNum}`);
+  }
+
+  function cmdClearAnswer() {
+    if (state.currentIndex < 0 || state.currentIndex >= state.questions.length) {
+      speak("No question selected. Say next question or go to a question number first.");
+      return;
+    }
+
+    const qNum = state.currentIndex + 1;
+    if (!state.answers[state.currentIndex]) {
+      speak(`There is no answer for question ${qNum} to clear.`);
+      return;
+    }
+
+    state.answers[state.currentIndex] = undefined;
+    updateAnswerDisplay();
+    speak(`Answer for question ${qNum} has been cleared. You may now give a new answer.`);
+    log(`Answer for Q${qNum} cleared`);
   }
 
   function cmdRepeatQuestion() {
@@ -345,32 +456,59 @@
   }
 
   function cmdSubmitExam() {
-    speak("Your exam has been submitted. Thank you and all the best.");
     state.examActive = false;
     recognition.stop();
+
+    const skipped = findSkippedQuestions();
+    let msg = "";
+    if (skipped.length > 0) {
+      msg = `Note: question${skipped.length > 1 ? "s" : ""} ${skipped.join(", ")} ${skipped.length > 1 ? "are" : "is"} unanswered. `;
+    }
+    msg += "Your exam has been submitted. Thank you and all the best.";
+
+    const utterance = new SpeechSynthesisUtterance(msg);
+    utterance.lang = "en-IN";
+    utterance.rate = 0.92;
+    const voices = window.speechSynthesis.getVoices();
+    const indianVoice = voices.find(
+      (v) => v.lang === "en-IN" || v.lang.startsWith("en-IN")
+    );
+    if (indianVoice) utterance.voice = indianVoice;
+
+    utterance.onend = () => {
+      window.location.href = "/exam/submitted";
+    };
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+
     setStatus("idle", "Exam submitted");
     log("Exam submitted");
-
-    if (els.questionBox) {
-      els.questionBox.textContent = "Exam submitted successfully.";
-    }
-    if (els.startBtn) {
-      els.startBtn.disabled = true;
-      els.startBtn.textContent = "Exam Submitted";
-    }
-
     console.log("Final answers:", state.answers);
   }
 
   function cmdHelp() {
     const helpText =
-      "Available commands: " +
+      "Available commands. " +
       "Say next question to hear the next question. " +
+      "Say skip question to skip and come back later. " +
+      "Say go to question followed by the number, for example, go to question 3, to jump to that question. " +
       "Say repeat question to hear the current question again. " +
+      "Say clear answer to delete your answer and record a new one. " +
       "Say submit exam when you are finished. " +
-      "Say help to hear these instructions again.";
+      "Say help me to hear these instructions again.";
     speak(helpText);
     log("Help instructions spoken");
+  }
+
+  function findSkippedQuestions() {
+    const skipped = [];
+    for (let i = 0; i < state.questions.length; i++) {
+      if (!state.answers[i]) {
+        skipped.push(i + 1);
+      }
+    }
+    return skipped;
   }
 
   // ============================================================
@@ -378,6 +516,8 @@
   // ============================================================
   function speak(text) {
     window.speechSynthesis.cancel();
+    state.ttsActive = true;
+
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-IN";
     utterance.rate = 0.92;
@@ -391,13 +531,40 @@
       utterance.voice = indianVoice;
     }
 
-    // Pause recognition while speaking to avoid echo pickup
     if (state.examActive) {
       recognition.stop();
       utterance.onend = () => {
-        setTimeout(safeStartRecognition, 400);
+        state.cooldownUntil = Date.now() + COOLDOWN_AFTER_TTS_MS;
+        setTimeout(() => {
+          speakCue("You may speak now.");
+        }, COOLDOWN_AFTER_TTS_MS);
       };
     }
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function speakCue(text) {
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-IN";
+    utterance.rate = 1.1;
+    utterance.pitch = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    const indianVoice = voices.find(
+      (v) => v.lang === "en-IN" || v.lang.startsWith("en-IN")
+    );
+    if (indianVoice) {
+      utterance.voice = indianVoice;
+    }
+
+    utterance.onend = () => {
+      state.ttsActive = false;
+      state.cooldownUntil = Date.now() + 400;
+      setTimeout(safeStartRecognition, 400);
+    };
 
     window.speechSynthesis.speak(utterance);
   }
