@@ -25,11 +25,11 @@ with app.app_context():
     inv_id = get_next_id("users")
     db.users.insert_one({
         "_id": inv_id,
-        "full_name": "Demo Invigilator",
-        "username": "invigilator",
-        "email": "invigilator@test.com",
-        "password_hash": generate_password_hash("invigilator123"),
-        "role": "INVIGILATOR",
+        "full_name": "Demo Admin",
+        "username": "Admin",
+        "email": "Admin@test.com",
+        "password_hash": generate_password_hash("admin"),
+        "role": "ADMIN",
         "phone_no": None,
         "created_at": datetime.now(timezone.utc),
         "session_token": None,

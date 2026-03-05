@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import re
-from models import db, Registration, Exam, Question, Answer, ExamSession, Candidate
+from models import init_app, get_db, get_next_id
 from werkzeug.security import check_password_hash
 
 try:
@@ -15,7 +15,8 @@ app.secret_key = "secretkey123"
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///exam.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-db.init_app(app)
+
+init_app(app)
 
 _grammar_tool = None
 if language_tool_python is not None:
@@ -128,7 +129,7 @@ def login():
 @app.route('/student/dashboard')
 def student_dashboard():
 
-    if 'user_id' not in session or session.get('role') != 'CANDIDATE':
+    if session.get('role') != 'CANDIDATE':
         return redirect(url_for('show_login'))
 
     user_id = session['user_id']
@@ -139,13 +140,13 @@ def student_dashboard():
         flash("Candidate profile not found.")
         return redirect(url_for('show_login'))
 
-    # Check active session
+    # Active session
     active_session = ExamSession.query.filter_by(
         candidate_id=candidate.candidate_id,
         status='STARTED'
     ).first()
 
-    # Get completed sessions for performance
+    # Completed sessions
     completed_sessions = ExamSession.query.filter_by(
         candidate_id=candidate.candidate_id,
         status='ENDED'
@@ -155,10 +156,7 @@ def student_dashboard():
 
     for s in completed_sessions:
         answers = Answer.query.filter_by(session_id=s.session_id).all()
-        total_marks = 0
-
-        for a in answers:
-            total_marks += a.marks or 0
+        total_marks = sum(a.marks or 0 for a in answers)
 
         exam = Exam.query.get(s.exam_id)
 
@@ -232,8 +230,8 @@ def add_question():
 
     q = Question(exam_id=exam_id, question_text=text)
 
-    db.session.add(q)
-    db.session.commit()
+    _db.session.add(q)
+    _db.session.commit()
 
     return jsonify({"status": "added"})
 
@@ -250,7 +248,7 @@ def update_question():
     q = Question.query.get(qid)
     q.question_text = text
 
-    db.session.commit()
+    _db.session.commit()
 
     return jsonify({"status": "updated"})
 
@@ -263,8 +261,8 @@ def delete_question(qid):
 
     q = Question.query.get(qid)
 
-    db.session.delete(q)
-    db.session.commit()
+    _db.session.delete(q)
+    _db.session.commit()
 
     return jsonify({"status": "deleted"})
 
@@ -284,7 +282,7 @@ def save_marks():
 
     ans.marks = marks
 
-    db.session.commit()
+    _db.session.commit()
 
     return jsonify({"status": "marks saved"})
 
@@ -371,8 +369,8 @@ def save_answer():
         answer_text=normalized_answer
     )
 
-    db.session.add(answer)
-    db.session.commit()
+    _db.session.add(answer)
+    _db.session.commit()
 
     return jsonify({
         "status": "saved",
@@ -403,8 +401,8 @@ def start_exam():
         candidate_id=candidate.candidate_id
     )
 
-    db.session.add(new_session)
-    db.session.commit()
+    _db.session.add(new_session)
+    _db.session.commit()
 
     session['exam_session_id'] = new_session.session_id
 

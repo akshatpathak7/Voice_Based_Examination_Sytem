@@ -1,147 +1,641 @@
 <!DOCTYPE html>
-<html>
+
+<html lang="en">
+
 <head>
-    <title>Invigilator Dashboard</title>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invigilator Console</title>
 
     <style>
-        body {
+        * {
             margin: 0;
-            font-family: Arial;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+
+        body {
+            display: flex;
+            height: 100vh;
             background: #f4f6f9;
         }
 
-        .header {
-            background: #1e3a8a;
+        /* SIDEBAR */
+
+        .sidebar {
+            width: 240px;
+            background: #0f172a;
             color: white;
-            padding: 15px 25px;
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
+            padding-top: 20px;
         }
 
-        .container {
-            width: 92%;
-            margin: 20px auto;
+        .sidebar h2 {
+            text-align: center;
+            margin-bottom: 25px;
+            font-size: 18px;
+        }
+
+        .sidebar a {
+            padding: 12px 20px;
+            color: #cbd5e1;
+            text-decoration: none;
+            display: block;
+            cursor: pointer;
+        }
+
+        .sidebar a:hover {
+            background: #1e293b;
+        }
+
+        /* MAIN */
+
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* TOPBAR */
+
+        .topbar {
+            height: 60px;
+            background: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        /* CONTENT */
+
+        .content {
+            padding: 25px;
+            overflow-y: auto;
+        }
+
+        /* CARDS */
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
         }
 
         .card {
             background: white;
             padding: 20px;
             border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .card h3 {
+            font-size: 14px;
+            color: gray;
+        }
+
+        .card p {
+            font-size: 22px;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        /* TABLE */
+
+        .table-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
             margin-bottom: 20px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
         }
-
-        button {
-            padding: 8px 14px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            color: white;
-            background: #2563eb;
-        }
-
-        .danger { background: #dc2626; }
-        .success { background: #16a34a; }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 15px;
         }
 
-        table th, table td {
-            padding: 10px;
-            border-bottom: 1px solid #ddd;
-            text-align: center;
+        th,
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            text-align: left;
         }
 
-        table th {
+        button {
+            padding: 6px 12px;
             background: #2563eb;
             color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
         }
 
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        .start-btn {
+            background: #16a34a;
+        }
+
+        .end-btn {
+            background: #dc2626;
+        }
+
+        input,
+        select {
+            padding: 8px;
+            margin: 5px;
+        }
+
+        /* SECTION CONTROL */
+
+        .section {
+            display: none;
+        }
+
+        .section.active {
+            display: block;
+        }
     </style>
+
 </head>
 
 <body>
 
-<div class="header">
-    <h2>Invigilator Control Panel</h2>
-    <a href="/logout" style="color:white;text-decoration:none;">Logout</a>
-</div>
+    <div class="sidebar">
 
-<div class="container">
+        <h2>Invigilator Panel</h2>
 
-<!-- CREATE EXAM -->
-<div class="card">
-    <h3>Create New Exam</h3>
-    <form action="/invigilator/create_exam" method="post">
-        <input type="text" name="name" placeholder="Exam Name" required>
-        <input type="number" name="duration" placeholder="Duration (minutes)" required>
-        <button>Create</button>
-    </form>
-</div>
+        <a onclick="showSection('dashboard')">Dashboard</a> <a onclick="showSection('exams')">Manage Exams</a> <a
+            onclick="showSection('questions')">Manage Questions</a> <a onclick="showSection('evaluate')">Evaluate</a> <a
+            href="/logout">Logout</a>
 
-<!-- EXAMS LIST -->
-<div class="card">
-    <h3>All Exams</h3>
+    </div>
 
-    <table>
-        <tr>
-            <th>Name</th>
-            <th>Duration</th>
-            <th>Status</th>
-            <th>Actions</th>
-        </tr>
+    <div class="main">
 
-        {% for e in exams %}
-        <tr>
-            <td>{{ e.exam_name }}</td>
-            <td>{{ e.duration }} mins</td>
-            <td>{{ e.status }}</td>
-            <td>
+        <div class="topbar">
+            <div>Invigilator Console</div>
+            <div>👤 Invigilator</div>
+        </div>
 
-                {% if e.status == 'CREATED' %}
-                    <a href="/invigilator/start_exam/{{ e.exam_id }}">
-                        <button class="success">Start</button>
-                    </a>
-                {% elif e.status == 'LIVE' %}
-                    <a href="/invigilator/end_exam/{{ e.exam_id }}">
-                        <button class="danger">End</button>
-                    </a>
-                {% else %}
-                    Exam Ended
-                {% endif %}
+        <div class="content">
 
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
+            <!-- DASHBOARD -->
 
-<!-- SESSIONS -->
-<div class="card">
-    <h3>Exam Sessions</h3>
+            <div id="dashboard" class="section active">
 
-    {% for s in sessions %}
-        <p>
-            Session {{ s.session_id }} |
-            Candidate {{ s.candidate_id }} |
-            Status: {{ s.status }}
+                <div class="cards">
 
-            <button onclick="viewAnswers({{ s.session_id }})">Evaluate</button>
-        </p>
-    {% endfor %}
-</div>
+                    <div class="card">
+                        <h3>Total Exams</h3>
+                        <p>{{ exams|length }}</p>
+                    </div>
 
-<!-- ANSWER AREA -->
-<div class="card" id="answerArea">
-    <h3>Evaluation Area</h3>
-</div>
+                    <div class="card">
+                        <h3>Total Sessions</h3>
+                        <p>{{ sessions|length }}</p>
+                    </div>
 
-</div>
+                </div>
 
-<script src="{{ url_for('static', filename='script.js') }}"></script>
+                <div class="table-container">
+
+                    <h3>Exam Sessions</h3>
+
+                    <table>
+
+                        <tr>
+                            <th>Session</th>
+                            <th>Exam</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+
+                        {% for s in sessions %}
+
+                        <tr>
+
+                            <td>{{ s.session_id }}</td>
+                            <td>{{ s.exam_id }}</td>
+                            <td>{{ s.status }}</td>
+
+                            <td>
+
+                                <button class="start-btn" onclick="startExam({{ s.session_id }})">
+                                    Start Exam
+                                </button>
+
+                                <button class="end-btn" onclick="endExam({{ s.session_id }})">
+                                    End Exam
+                                </button>
+
+                                <button onclick="showSection('evaluate')">
+                                    Evaluate
+                                </button>
+
+                            </td>
+
+                        </tr>
+
+                        {% endfor %}
+
+                    </table>
+
+                </div>
+
+            </div>
+
+            <!-- MANAGE EXAMS -->
+
+            <div id="exams" class="section">
+
+                <div class="table-container">
+
+                    <h3>Create Exam</h3>
+
+                    <input type="text" id="examName" placeholder="Exam Name">
+
+                    <button onclick="createExam()">Create</button>
+
+                </div>
+
+                <div class="table-container">
+
+                    <h3>Exam List</h3>
+
+                    <table>
+
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Action</th>
+                        </tr>
+
+                        {% for e in exams %}
+
+                        <tr>
+
+                            <td>{{ e.exam_id }}</td>
+                            <td>{{ e.exam_name }}</td>
+
+                            <td>
+
+                                <button onclick="deleteExam({{ e.exam_id }})">
+                                    Delete
+                                </button>
+
+                            </td>
+
+                        </tr>
+
+                        {% endfor %}
+
+                    </table>
+
+                </div>
+
+            </div>
+
+            <!-- QUESTIONS -->
+
+            <div id="questions" class="section">
+
+                <div class="table-container">
+
+                    <h3>Select Exam</h3>
+
+                    <select id="examSelect" onchange="loadQuestions()">
+
+                        <option value="">Select Exam</option>
+
+                        {% for e in exams %}
+
+                        <option value="{{ e.exam_id }}">
+                            {{ e.exam_name }}
+                        </option>
+
+                        {% endfor %}
+
+                    </select>
+
+                </div>
+
+                <div class="table-container">
+
+                    <h3>Add Question</h3>
+
+                    <input type="text" id="questionText" placeholder="Enter question">
+
+                    <button onclick="addQuestion()">Add Question</button>
+
+                </div>
+
+                <div class="table-container">
+
+                    <h3>Question List</h3>
+
+                    <table id="questionTable">
+
+                        <tr>
+                            <th>ID</th>
+                            <th>Question</th>
+                            <th>Actions</th>
+                        </tr>
+
+                    </table>
+
+                </div>
+
+            </div>
+
+            <!-- EVALUATE -->
+
+            <div id="evaluate" class="section">
+
+                <div class="table-container">
+
+                    <h3>Select Subject</h3>
+
+                    <select id="examEvaluateSelect" onchange="loadStudentsForExam()">
+
+                        <option value="">Select Exam</option>
+
+                        {% for e in exams %}
+
+                        <option value="{{ e.exam_id }}">
+                            {{ e.exam_name }}
+                        </option>
+
+                        {% endfor %}
+
+                    </select>
+
+                </div>
+
+                <div class="table-container">
+
+                    <h3>Students List</h3>
+
+                    <table id="studentTable">
+
+                        <tr>
+                            <th>Student</th>
+                            <th>Session</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+
+                    </table>
+
+                </div>
+
+                <div class="table-container">
+
+                    <h3>Evaluate Answers</h3>
+
+                    <div id="answerArea">
+                        Select student to evaluate
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+
+        /* SECTION NAVIGATION */
+
+        function showSection(id) {
+
+            document.querySelectorAll(".section").forEach(sec => {
+                sec.classList.remove("active")
+            })
+
+            document.getElementById(id).classList.add("active")
+
+        }
+
+        /* START / END EXAM */
+
+        function startExam(sessionId) {
+
+            fetch("/invigilator/start_exam/" + sessionId)
+                .then(() => alert("Exam started"))
+
+        }
+
+        function endExam(sessionId) {
+
+            fetch("/invigilator/end_exam/" + sessionId)
+                .then(() => alert("Exam ended"))
+
+        }
+
+        /* EXAM CRUD */
+
+        function createExam() {
+
+            let name = document.getElementById("examName").value
+
+            fetch("/invigilator/create_exam", {
+                method: "POST",
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            }).then(() => location.reload())
+
+        }
+
+        function deleteExam(id) {
+
+            fetch("/invigilator/delete_exam/" + id)
+                .then(() => location.reload())
+
+        }
+
+        /* QUESTION CRUD */
+
+        function loadQuestions() {
+
+            let examId = document.getElementById("examSelect").value
+
+            fetch("/invigilator/get_questions/" + examId)
+
+                .then(res => res.json())
+
+                .then(data => {
+
+                    let table = document.getElementById("questionTable")
+
+                    table.innerHTML = `<tr>
+<th>ID</th>
+<th>Question</th>
+<th>Actions</th>
+</tr>`
+
+                    data.forEach(q => {
+
+                        table.innerHTML += `
+<tr>
+<td>${q.id}</td>
+<td>${q.text}</td>
+<td>
+<button onclick="deleteQuestion(${q.id})">
+Delete
+</button>
+</td>
+</tr>
+`
+
+                    })
+
+                })
+
+        }
+
+        function addQuestion() {
+
+            let examId = document.getElementById("examSelect").value
+            let text = document.getElementById("questionText").value
+
+            let formData = new FormData()
+
+            formData.append("exam_id", examId)
+            formData.append("text", text)
+
+            fetch("/invigilator/add_question", {
+                method: "POST",
+                body: formData
+            }).then(() => loadQuestions())
+
+        }
+
+        function deleteQuestion(id) {
+
+            fetch("/invigilator/delete_question/" + id)
+                .then(() => loadQuestions())
+
+        }
+
+        /* EVALUATION */
+
+        function loadStudentsForExam() {
+
+            let examId = document.getElementById("examEvaluateSelect").value
+
+            fetch("/invigilator/get_sessions/" + examId)
+
+                .then(res => res.json())
+
+                .then(data => {
+
+                    let table = document.getElementById("studentTable")
+
+                    table.innerHTML = `<tr>
+<th>Student</th>
+<th>Session</th>
+<th>Status</th>
+<th>Action</th>
+</tr>`
+
+                    data.forEach(s => {
+
+                        table.innerHTML += `
+<tr>
+<td>${s.candidate_id}</td>
+<td>${s.session_id}</td>
+<td>${s.status}</td>
+<td>
+<button onclick="loadAnswers(${s.session_id})">
+Evaluate
+</button>
+</td>
+</tr>
+`
+
+                    })
+
+                })
+
+        }
+
+        function loadAnswers(sessionId) {
+
+            fetch("/invigilator/get_answers/" + sessionId)
+
+                .then(res => res.json())
+
+                .then(data => {
+
+                    let html = "<table>"
+
+                    html += `<tr>
+<th>Question</th>
+<th>Answer</th>
+<th>Marks</th>
+<th>Save</th>
+</tr>`
+
+                    data.forEach(a => {
+
+                        html += `
+<tr>
+
+<td>${a.question}</td>
+<td>${a.answer}</td>
+
+<td>
+<input type="number" id="mark_${a.answer_id}" value="${a.marks || 0}">
+</td>
+
+<td>
+<button onclick="saveMarks(${a.answer_id})">
+Save
+</button>
+</td>
+
+</tr>
+`
+
+                    })
+
+                    html += "</table>"
+
+                    document.getElementById("answerArea").innerHTML = html
+
+                })
+
+        }
+
+        function saveMarks(answerId) {
+
+            let marks = document.getElementById("mark_" + answerId).value
+
+            let formData = new FormData()
+
+            formData.append("answer_id", answerId)
+            formData.append("marks", marks)
+
+            fetch("/invigilator/save_marks", {
+                method: "POST",
+                body: formData
+            }).then(() => alert("Marks saved"))
+
+        }
+
+    </script>
 
 </body>
+
 </html>

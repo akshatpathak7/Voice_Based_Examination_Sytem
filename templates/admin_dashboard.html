@@ -1,22 +1,436 @@
 <!DOCTYPE html>
-<html>
+
+<html lang="en">
+
 <head>
-    <title>Admin Dashboard</title>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Console</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+
+        body {
+            display: flex;
+            height: 100vh;
+            background: #f4f6f9;
+        }
+
+        /* SIDEBAR */
+
+        .sidebar {
+            width: 240px;
+            background: #1e293b;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            padding-top: 20px;
+        }
+
+        .sidebar h2 {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .sidebar a {
+            padding: 12px 20px;
+            color: #cbd5e1;
+            text-decoration: none;
+            display: block;
+            cursor: pointer;
+        }
+
+        .sidebar a:hover {
+            background: #334155;
+        }
+
+        /* MAIN */
+
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .topbar {
+            height: 60px;
+            background: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .content {
+            padding: 25px;
+            overflow-y: auto;
+        }
+
+        /* CARDS */
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .card h3 {
+            font-size: 14px;
+            color: gray;
+        }
+
+        .card p {
+            font-size: 22px;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        /* TABLE */
+
+        .table-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        button {
+            padding: 6px 12px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        input {
+            padding: 8px;
+            margin: 5px;
+        }
+
+        /* SECTIONS */
+
+        .section {
+            display: none;
+        }
+
+        .section.active {
+            display: block;
+        }
+    </style>
+
 </head>
+
 <body>
 
-<h2>Admin Dashboard</h2>
+    <div class="sidebar">
 
-<p>System administration and control.</p>
+        <h2>Institution Panel</h2>
 
-<ul>
-    <li>👥 Manage Users (Students & Invigilators)</li>
-    <li>🔐 Role-based Access Control</li>
-    <li>📊 View System Reports</li>
-    <li>⚙ System Configuration</li>
-</ul>
+        <a onclick="showSection('dashboard')">Dashboard</a> <a onclick="showSection('students')">Manage Students</a> <a
+            onclick="showSection('invigilators')">Manage Invigilators</a> <a onclick="showSection('exams')">Exams</a> <a
+            onclick="showSection('reports')">Reports</a> <a onclick="showSection('logs')">Security Logs</a> <a
+            href="/logout">Logout</a>
 
-<a href="/logout">Logout</a>
+    </div>
+
+    <div class="main">
+
+        <div class="topbar">
+            <div>Admin Console</div>
+            <div>👤 Admin</div>
+        </div>
+
+        <div class="content">
+
+            <!-- DASHBOARD -->
+
+            <div id="dashboard" class="section active">
+
+                <div class="cards">
+
+                    <div class="card">
+                        <h3>Total Students</h3>
+                        <p>{{ students|length }}</p>
+                    </div>
+
+                    <div class="card">
+                        <h3>Total Invigilators</h3>
+                        <p>{{ invigilators|length }}</p>
+                    </div>
+
+                    <div class="card">
+                        <h3>Total Exams</h3>
+                        <p>{{ exams|length }}</p>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <!-- STUDENTS -->
+
+            <div id="students" class="section">
+
+                <div class="table-container">
+
+                    <h3>Add Student</h3>
+
+                    <input type="text" id="studentName" placeholder="Full Name">
+                    <input type="text" id="studentUser" placeholder="Username">
+                    <input type="password" id="studentPass" placeholder="Password">
+
+                    <button onclick="addStudent()">Add</button>
+
+                </div>
+
+                <div class="table-container">
+
+                    <h3>Student List</h3>
+
+                    <table>
+
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Username</th>
+                            <th>Action</th>
+                        </tr>
+
+                        {% for s in students %}
+
+                        <tr>
+
+                            <td>{{ s.reg_id }}</td>
+                            <td>{{ s.full_name }}</td>
+                            <td>{{ s.username }}</td>
+
+                            <td>
+                                <button onclick="deleteStudent({{ s.reg_id }})">
+                                    Delete
+                                </button>
+                            </td>
+
+                        </tr>
+
+                        {% endfor %}
+
+                    </table>
+
+                </div>
+
+            </div>
+
+            <!-- INVIGILATORS -->
+
+            <div id="invigilators" class="section">
+
+                <div class="table-container">
+
+                    <h3>Add Invigilator</h3>
+
+                    <input type="text" id="invName" placeholder="Full Name">
+                    <input type="text" id="invUser" placeholder="Username">
+                    <input type="password" id="invPass" placeholder="Password">
+
+                    <button onclick="addInvigilator()">Add</button>
+
+                </div>
+
+                <div class="table-container">
+
+                    <h3>Invigilator List</h3>
+
+                    <table>
+
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Username</th>
+                            <th>Action</th>
+                        </tr>
+
+                        {% for i in invigilators %}
+
+                        <tr>
+
+                            <td>{{ i.reg_id }}</td>
+                            <td>{{ i.full_name }}</td>
+                            <td>{{ i.username }}</td>
+
+                            <td>
+                                <button onclick="deleteInvigilator({{ i.reg_id }})">
+                                    Delete
+                                </button>
+                            </td>
+
+                        </tr>
+
+                        {% endfor %}
+
+                    </table>
+
+                </div>
+
+            </div>
+
+            <!-- EXAMS -->
+
+            <div id="exams" class="section">
+
+                <div class="table-container">
+
+                    <h3>Exam List</h3>
+
+                    <table>
+
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                        </tr>
+
+                        {% for e in exams %}
+
+                        <tr>
+                            <td>{{ e.exam_id }}</td>
+                            <td>{{ e.exam_name }}</td>
+                        </tr>
+
+                        {% endfor %}
+
+                    </table>
+
+                </div>
+
+            </div>
+
+            <!-- REPORTS -->
+
+            <div id="reports" class="section">
+
+                <div class="table-container">
+
+                    <h3>Exam Reports</h3>
+
+                    <p>Reports will show exam performance summary.</p>
+
+                </div>
+
+            </div>
+
+            <!-- LOGS -->
+
+            <div id="logs" class="section">
+
+                <div class="table-container">
+
+                    <h3>Security Logs</h3>
+
+                    <p>Login activity and system logs will appear here.</p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+
+        function showSection(id) {
+
+            document.querySelectorAll(".section").forEach(sec => {
+                sec.classList.remove("active")
+            })
+
+            document.getElementById(id).classList.add("active")
+
+        }
+
+        /* STUDENTS */
+
+        function addStudent() {
+
+            let name = document.getElementById("studentName").value
+            let user = document.getElementById("studentUser").value
+            let pass = document.getElementById("studentPass").value
+
+            fetch("/admin/add_student", {
+
+                method: "POST",
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, user, pass })
+
+            }).then(() => location.reload())
+
+        }
+
+        function deleteStudent(id) {
+
+            fetch("/admin/delete_student/" + id)
+                .then(() => location.reload())
+
+        }
+
+        /* INVIGILATORS */
+
+        function addInvigilator() {
+
+            let name = document.getElementById("invName").value
+            let user = document.getElementById("invUser").value
+            let pass = document.getElementById("invPass").value
+
+            fetch("/admin/add_invigilator", {
+
+                method: "POST",
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, user, pass })
+
+            }).then(() => location.reload())
+
+        }
+
+        function deleteInvigilator(id) {
+
+            fetch("/admin/delete_invigilator/" + id)
+                .then(() => location.reload())
+
+        }
+
+    </script>
 
 </body>
+
 </html>
