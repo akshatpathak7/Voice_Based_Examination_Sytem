@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>User Profile</title>
+
+<style>
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:"Segoe UI", Arial, sans-serif;
+}
+
+body{
+display:flex;
+height:100vh;
+background:#f4f6f9;
+}
+
+/* SIDEBAR */
+
+.sidebar{
+width:230px;
+background:#0f172a;
+color:white;
+display:flex;
+flex-direction:column;
+padding-top:20px;
+}
+
+.sidebar h2{
+text-align:center;
+margin-bottom:25px;
+}
+
+.sidebar a{
+padding:12px 20px;
+color:#cbd5e1;
+text-decoration:none;
+display:block;
+cursor:pointer;
+}
+
+.sidebar a:hover{
+background:#1e293b;
+}
+
+/* MAIN */
+
+.main{
+flex:1;
+display:flex;
+flex-direction:column;
+}
+
+/* TOPBAR */
+
+.topbar{
+height:60px;
+background:white;
+display:flex;
+justify-content:space-between;
+align-items:center;
+padding:0 20px;
+border-bottom:1px solid #ddd;
+}
+
+/* CONTENT */
+
+.content{
+padding:25px;
+}
+
+/* PROFILE CARD */
+
+.profile-card{
+
+background:white;
+padding:30px;
+width:450px;
+border-radius:10px;
+box-shadow:0 4px 12px rgba(0,0,0,0.08);
+
+}
+
+.profile-card h2{
+margin-bottom:20px;
+}
+
+.profile-item{
+margin-bottom:10px;
+font-size:15px;
+}
+
+.profile-item span{
+font-weight:bold;
+}
+
+.back-btn{
+
+display:inline-block;
+margin-top:20px;
+padding:8px 14px;
+background:#2563eb;
+color:white;
+text-decoration:none;
+border-radius:5px;
+
+}
+
+.back-btn:hover{
+background:#1d4ed8;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<!-- SIDEBAR -->
+
+<div class="sidebar">
+
+<h2>Panel</h2>
+
+<a href="javascript:history.back()">Dashboard</a>
+<a href="/profile">Profile</a>
+<a href="/logout">Logout</a>
+
+</div>
+
+
+<!-- MAIN -->
+
+<div class="main">
+
+<div class="topbar">
+
+<div>User Profile</div>
+
+<div>
+👤 {{ user.full_name }}
+</div>
+
+</div>
+
+
+<div class="content">
+
+<div class="profile-card">
+
+<h2>Profile Details</h2>
+
+<div class="profile-item">
+<span>Name:</span> {{ user.full_name }}
+</div>
+
+<div class="profile-item">
+<span>Username:</span> {{ user.username }}
+</div>
+
+<div class="profile-item">
+<span>Role:</span> {{ user.role }}
+</div>
+
+<div class="profile-item">
+<span>User ID:</span> {{ user.reg_id }}
+</div>
+
+<a class="back-btn" href="javascript:history.back()">⬅ Back</a>
+
+</div>
+
+</div>
+
+</div>
+
+</body>
+</html>
