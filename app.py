@@ -1,421 +1,439 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
-import re
+from werkzeug.security import check_password_hash, generate_password_hash
 from models import init_app, get_db, get_next_id
-from werkzeug.security import check_password_hash
-
-try:
-    import language_tool_python
-except ImportError:  # graceful fallback if not installed
-    language_tool_python = None
+import re
 
 app = Flask(__name__)
 app.secret_key = "secretkey123"
 
-# -----  DATABASE PATH -----
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///exam.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
+# MongoDB config
+app.config["MONGO_URI"] = "mongodb://localhost:27017/"
+app.config["MONGO_DB_NAME"] = "voice_exam_system"
 
 init_app(app)
-
-_grammar_tool = None
-if language_tool_python is not None:
-    try:
-        _grammar_tool = language_tool_python.LanguageTool("en-US")
-    except Exception:
-        _grammar_tool = None
+db = get_db()
 
 
-def normalize_answer(question_text, answer_text):
-    text = " ".join(answer_text.strip().split())
-
-    if not text:
-        return text
-
-    # Basic fixes for common STT artefacts and casing
-    text = re.sub(r"\bim\b", "I'm", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bi\b", "I", text)
-
-    # Remove common filler words
-    fillers_pattern = r"\b(um+|uh+|erm|like|you know|sort of|kind of)\b"
-    text = re.sub(fillers_pattern, "", text, flags=re.IGNORECASE)
-    text = " ".join(text.split())
-
-    # Fix a/an usage based on following word
-    words = text.split()
-    for idx in range(len(words) - 1):
-        if words[idx].lower() in ("a", "an"):
-            next_word = re.sub(r"[^A-Za-z]", "", words[idx + 1])
-            if next_word:
-                starts_vowel = next_word[0].lower() in "aeiou"
-                if words[idx].lower() == "a" and starts_vowel:
-                    words[idx] = "an"
-                elif words[idx].lower() == "an" and not starts_vowel:
-                    words[idx] = "a"
-
-    text = " ".join(words)
-
-    # Capitalize first character and start of new sentences
-    if text:
-        text = text[0].upper() + text[1:]
-    text = re.sub(r"(?<=[\.\!\?]\s)([a-z])", lambda match: match.group(1).upper(), text)
-
-    # Ensure trailing punctuation
-    if text and text[-1] not in ".!?":
-        text += "."
-
-    # Simple question-specific rule example
-    if question_text and "capital of" in question_text.lower():
-        text = text.title()
-
-    # Optional grammar correction step for better contextual correctness
-    if _grammar_tool is not None:
-        try:
-            matches = _grammar_tool.check(text)
-            text = language_tool_python.utils.correct(text, matches)
-        except Exception:
-            # If grammar tool fails for any reason, fall back to rule-based result
-            pass
-
-    return text
-
-# ---------- ROUTES ----------
+# =========================================================
+# INDEX
+# =========================================================
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template("index.html")
 
 
-# ---------- SHOW LOGIN PAGE ----------
-@app.route('/login', methods=['GET'])
+# =========================================================
+# LOGIN
+# =========================================================
+
+@app.route('/login', methods=["GET"])
 def show_login():
-    return render_template('login.html')
+    return render_template("login.html")
 
 
-# ---------- PROCESS LOGIN ----------
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=["POST"])
 def login():
 
-    username = request.form['username']
-    password = request.form['password']
+    username = request.form["username"]
+    password = request.form["password"]
 
-    user = Registration.query.filter_by(username=username).first()
+    user = db.users.find_one({"username": username})
 
     if not user:
-        flash("Invalid username or password")
-        return redirect(url_for('show_login'))
+        flash("Invalid credentials")
+        return redirect(url_for("show_login"))
 
-    if not check_password_hash(user.password_hash, password):
-        flash("Invalid username or password")
-        return redirect(url_for('show_login'))
+    if not check_password_hash(user["password_hash"], password):
+        flash("Invalid credentials")
+        return redirect(url_for("show_login"))
 
-    session['user_id'] = user.reg_id
-    session['role'] = user.role
+    # FIX: convert ObjectId to string
+    session["user_id"] = str(user["_id"])
+    session["role"] = user["role"]
 
-    if user.role == 'INVIGILATOR':
-        return redirect(url_for('invigilator_dashboard'))
+    if user["role"] == "ADMIN":
+        return redirect("/admin/dashboard")
 
-    elif user.role == 'CANDIDATE':
-        return redirect(url_for('student_dashboard'))
+    if user["role"] == "INVIGILATOR":
+        return redirect("/invigilator/dashboard")
 
-    elif user.role == 'ADMIN':
-        return redirect(url_for('admin_dashboard'))
-
-    return redirect(url_for('index'))
+    if user["role"] == "CANDIDATE":
+        return redirect("/student/dashboard")
 
 
-# ---------- DASHBOARDS ----------
+# =========================================================
+# LOGOUT
+# =========================================================
 
-@app.route('/student/dashboard')
-def student_dashboard():
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect("/")
 
-    if session.get('role') != 'CANDIDATE':
-        return redirect(url_for('show_login'))
 
-    user_id = session['user_id']
-
-    candidate = Candidate.query.filter_by(reg_id=user_id).first()
-
-    if not candidate:
-        flash("Candidate profile not found.")
-        return redirect(url_for('show_login'))
-
-    # Active session
-    active_session = ExamSession.query.filter_by(
-        candidate_id=candidate.candidate_id,
-        status='STARTED'
-    ).first()
-
-    # Completed sessions
-    completed_sessions = ExamSession.query.filter_by(
-        candidate_id=candidate.candidate_id,
-        status='ENDED'
-    ).all()
-
-    performance_data = []
-
-    for s in completed_sessions:
-        answers = Answer.query.filter_by(session_id=s.session_id).all()
-        total_marks = sum(a.marks or 0 for a in answers)
-
-        exam = Exam.query.get(s.exam_id)
-
-        performance_data.append({
-            "exam_name": exam.exam_name if exam else "Unknown",
-            "marks": total_marks
-        })
-
-    return render_template(
-        'student_dashboard.html',
-        active_session=active_session,
-        performance_data=performance_data
-    )
+# =========================================================
+# ADMIN DASHBOARD
+# =========================================================
 
 @app.route('/admin/dashboard')
 def admin_dashboard():
 
-    if 'user_id' not in session or session.get('role') != 'ADMIN':
-        return redirect(url_for('show_login'))
+    if session.get("role") != "ADMIN":
+        return redirect("/login")
 
-    return render_template('admin_dashboard.html')
+    students = list(db.users.find({"role": "CANDIDATE"}))
+    invigilators = list(db.users.find({"role": "INVIGILATOR"}))
+    exams = list(db.exams.find())
+
+    return render_template(
+        "admin_dashboard.html",
+        students=students,
+        invigilators=invigilators,
+        exams=exams
+    )
 
 
-# ---------- INVIGILATOR DASHBOARD (SINGLE PAGE) ----------
+# =========================================================
+# ADMIN STUDENT MANAGEMENT
+# =========================================================
+
+@app.route('/admin/add_student', methods=["POST"])
+def add_student():
+
+    data = request.get_json()
+
+    uid = get_next_id("users")
+
+    db.users.insert_one({
+        "_id": uid,
+        "reg_id": uid,
+        "full_name": data["name"],
+        "username": data["user"],
+        "password_hash": generate_password_hash(data["pass"]),
+        "role": "CANDIDATE"
+    })
+
+    return jsonify({"status": "ok"})
+
+
+@app.route('/admin/delete_student/<int:id>')
+def delete_student(id):
+
+    db.users.delete_one({"reg_id": id})
+
+    return jsonify({"status": "deleted"})
+
+
+# =========================================================
+# ADMIN INVIGILATOR MANAGEMENT
+# =========================================================
+
+@app.route('/admin/add_invigilator', methods=["POST"])
+def add_invigilator():
+
+    data = request.get_json()
+
+    uid = get_next_id("users")
+
+    db.users.insert_one({
+        "_id": uid,
+        "reg_id": uid,
+        "full_name": data["name"],
+        "username": data["user"],
+        "password_hash": generate_password_hash(data["pass"]),
+        "role": "INVIGILATOR"
+    })
+
+    return jsonify({"status": "ok"})
+
+
+@app.route('/admin/delete_invigilator/<int:id>')
+def delete_invigilator(id):
+
+    db.users.delete_one({"reg_id": id})
+
+    return jsonify({"status": "deleted"})
+
+
+# =========================================================
+# INVIGILATOR DASHBOARD
+# =========================================================
 
 @app.route('/invigilator/dashboard')
 def invigilator_dashboard():
 
-    if session.get('role') != 'INVIGILATOR':
-        return redirect(url_for('show_login'))
+    if session.get("role") != "INVIGILATOR":
+        return redirect("/login")
 
-    exams = Exam.query.all()
-    sessions = ExamSession.query.all()
+    exams = list(db.exams.find())
+    sessions = list(db.exam_sessions.find())
 
     return render_template(
-        'invigilator_dashboard.html',
+        "invigilator_dashboard.html",
         exams=exams,
         sessions=sessions
     )
 
 
-# ---------- QUESTION CRUD APIS ----------
+# =========================================================
+# EXAM MANAGEMENT
+# =========================================================
 
-@app.route('/invigilator/get_questions/<int:exam_id>')
-def get_exam_questions(exam_id):
+@app.route('/invigilator/create_exam', methods=["POST"])
+def create_exam():
 
-    if session.get('role') != 'INVIGILATOR':
-        return jsonify({"error": "unauthorized"}), 401
+    data = request.get_json()
 
-    questions = Question.query.filter_by(exam_id=exam_id).all()
+    exam_id = get_next_id("exams")
 
-    data = []
+    db.exams.insert_one({
+        "_id": exam_id,
+        "exam_id": exam_id,
+        "exam_name": data["name"]
+    })
 
-    for q in questions:
-        data.append({
-            "id": q.question_id,
-            "text": q.question_text
-        })
-
-    return jsonify(data)
-
-
-@app.route('/invigilator/add_question', methods=['POST'])
-def add_question():
-
-    if session.get('role') != 'INVIGILATOR':
-        return jsonify({"error": "unauthorized"}), 401
-
-    exam_id = request.form['exam_id']
-    text = request.form['text']
-
-    q = Question(exam_id=exam_id, question_text=text)
-
-    _db.session.add(q)
-    _db.session.commit()
-
-    return jsonify({"status": "added"})
+    return jsonify({"status": "created"})
 
 
-@app.route('/invigilator/update_question', methods=['POST'])
-def update_question():
+@app.route('/invigilator/delete_exam/<int:id>')
+def delete_exam(id):
 
-    if session.get('role') != 'INVIGILATOR':
-        return jsonify({"error": "unauthorized"}), 401
-
-    qid = request.form['qid']
-    text = request.form['text']
-
-    q = Question.query.get(qid)
-    q.question_text = text
-
-    _db.session.commit()
-
-    return jsonify({"status": "updated"})
-
-
-@app.route('/invigilator/delete_question/<int:qid>')
-def delete_question(qid):
-
-    if session.get('role') != 'INVIGILATOR':
-        return jsonify({"error": "unauthorized"}), 401
-
-    q = Question.query.get(qid)
-
-    _db.session.delete(q)
-    _db.session.commit()
+    db.exams.delete_one({"exam_id": id})
 
     return jsonify({"status": "deleted"})
 
 
-# ---------- MARKS MODULE ----------
+# =========================================================
+# EXAM SESSION CONTROL
+# =========================================================
 
-@app.route('/invigilator/save_marks', methods=['POST'])
-def save_marks():
+@app.route('/invigilator/start_exam/<int:session_id>')
+def start_exam(session_id):
 
-    if session.get('role') != 'INVIGILATOR':
-        return jsonify({"error": "unauthorized"}), 401
+    db.exam_sessions.update_one(
+        {"session_id": session_id},
+        {"$set": {"status": "STARTED"}}
+    )
 
-    answer_id = request.form['answer_id']
-    marks = request.form['marks']
+    return jsonify({"status": "started"})
 
-    ans = Answer.query.get(answer_id)
 
-    ans.marks = marks
+@app.route('/invigilator/end_exam/<int:session_id>')
+def end_exam(session_id):
 
-    _db.session.commit()
+    db.exam_sessions.update_one(
+        {"session_id": session_id},
+        {"$set": {"status": "ENDED"}}
+    )
 
-    return jsonify({"status": "marks saved"})
+    return jsonify({"status": "ended"})
 
+
+@app.route('/invigilator/get_sessions/<int:exam_id>')
+def get_sessions(exam_id):
+
+    sessions = list(db.exam_sessions.find({"exam_id": exam_id}))
+
+    data = []
+
+    for s in sessions:
+
+        data.append({
+            "candidate_id": s["candidate_id"],
+            "session_id": s["session_id"],
+            "status": s["status"]
+        })
+
+    return jsonify(data)
+
+
+# =========================================================
+# QUESTION CRUD
+# =========================================================
+
+@app.route('/invigilator/get_questions/<int:exam_id>')
+def get_questions(exam_id):
+
+    questions = list(db.questions.find({"exam_id": exam_id}))
+
+    data = []
+
+    for q in questions:
+
+        data.append({
+            "id": q["_id"],
+            "text": q["question_text"]
+        })
+
+    return jsonify(data)
+
+
+@app.route('/invigilator/add_question', methods=["POST"])
+def add_question():
+
+    exam_id = int(request.form["exam_id"])
+    text = request.form["text"]
+
+    qid = get_next_id("questions")
+
+    db.questions.insert_one({
+        "_id": qid,
+        "exam_id": exam_id,
+        "question_text": text
+    })
+
+    return jsonify({"status": "added"})
+
+
+@app.route('/invigilator/delete_question/<int:id>')
+def delete_question(id):
+
+    db.questions.delete_one({"_id": id})
+
+    return jsonify({"status": "deleted"})
+
+
+# =========================================================
+# ANSWER EVALUATION
+# =========================================================
 
 @app.route('/invigilator/get_answers/<int:session_id>')
 def get_answers(session_id):
 
-    if session.get('role') != 'INVIGILATOR':
-        return jsonify({"error": "unauthorized"}), 401
-
-    answers = Answer.query.filter_by(session_id=session_id).all()
+    answers = list(db.answers.find({"session_id": session_id}))
 
     data = []
 
     for a in answers:
 
-        q = Question.query.get(a.question_id)
+        q = db.questions.find_one({"_id": a["question_id"]})
 
         data.append({
-            "answer_id": a.answer_id,
-            "question": q.question_text if q else "Unknown",
-            "answer": a.answer_text,
-            "marks": a.marks
+            "answer_id": a["_id"],
+            "question": q["question_text"],
+            "answer": a["answer_text"],
+            "marks": a.get("marks", 0)
         })
 
     return jsonify(data)
 
 
-@app.route('/invigilator/get_result/<int:session_id>')
-def get_result(session_id):
+@app.route('/invigilator/save_marks', methods=["POST"])
+def save_marks():
 
-    if session.get('role') != 'INVIGILATOR':
-        return jsonify({"error": "unauthorized"}), 401
+    answer_id = int(request.form["answer_id"])
+    marks = int(request.form["marks"])
 
-    answers = Answer.query.filter_by(session_id=session_id).all()
+    db.answers.update_one(
+        {"_id": answer_id},
+        {"$set": {"marks": marks}}
+    )
 
-    total = 0
-
-    for a in answers:
-        total += a.marks or 0
-
-    return jsonify({"total_marks": total})
+    return jsonify({"status": "saved"})
 
 
-# ---------- STUDENT EXAM APIS ----------
+# =========================================================
+# STUDENT DASHBOARD
+# =========================================================
+
+@app.route('/student/dashboard')
+def student_dashboard():
+
+    if session.get("role") != "CANDIDATE":
+        return redirect("/login")
+
+    user_id = session["user_id"]
+
+    candidate = db.candidates.find_one({"reg_id": user_id})
+
+    sessions = list(db.exam_sessions.find({"candidate_id": candidate["_id"]}))
+
+    performance = []
+
+    for s in sessions:
+
+        answers = list(db.answers.find({"session_id": s["session_id"]}))
+
+        marks = sum(a.get("marks", 0) for a in answers)
+
+        exam = db.exams.find_one({"exam_id": s["exam_id"]})
+
+        performance.append({
+            "exam_name": exam["exam_name"],
+            "marks": marks
+        })
+
+    return render_template(
+        "student_dashboard.html",
+        active_session=None,
+        performance_data=performance
+    )
+
+
+# =========================================================
+# STUDENT EXAM APIs
+# =========================================================
 
 @app.route('/api/questions')
-def get_questions():
+def api_questions():
 
-    if 'user_id' not in session:
-        return jsonify({"error": "not logged in"}), 401
+    exam = db.exams.find_one()
 
-    exam = Exam.query.first()
-
-    questions = Question.query.filter_by(exam_id=exam.exam_id).all()
+    questions = list(db.questions.find({"exam_id": exam["exam_id"]}))
 
     data = []
+
     for q in questions:
         data.append({
-            "id": q.question_id,
-            "text": q.question_text
+            "id": q["_id"],
+            "text": q["question_text"]
         })
 
     return jsonify(data)
 
 
-@app.route('/api/save_answer', methods=['POST'])
+@app.route('/api/save_answer', methods=["POST"])
 def save_answer():
-
-    if 'exam_session_id' not in session:
-        return jsonify({"error": "session not started"}), 400
 
     data = request.get_json()
 
-    question = Question.query.get(data['question_id'])
-    normalized_answer = normalize_answer(
-        question.question_text if question else "",
-        data['answer']
-    )
+    aid = get_next_id("answers")
 
-    answer = Answer(
-        session_id=session['exam_session_id'],
-        question_id=data['question_id'],
-        answer_text=normalized_answer
-    )
-
-    _db.session.add(answer)
-    _db.session.commit()
-
-    return jsonify({
-        "status": "saved",
-        "normalized_answer": answer.answer_text
+    db.answers.insert_one({
+        "_id": aid,
+        "session_id": session["exam_session_id"],
+        "question_id": data["question_id"],
+        "answer_text": data["answer"],
+        "marks": 0
     })
+
+    return jsonify({"status": "saved"})
 
 
 @app.route('/api/start_exam')
-def start_exam():
+def api_start_exam():
 
-    if 'user_id' not in session:
-        return jsonify({"error": "not logged in"}), 401
+    exam = db.exams.find_one()
 
-    user_id = session['user_id']
+    sid = get_next_id("exam_sessions")
 
-    candidate = Candidate.query.filter_by(reg_id=user_id).first()
+    db.exam_sessions.insert_one({
+        "_id": sid,
+        "session_id": sid,
+        "exam_id": exam["exam_id"],
+        "candidate_id": session["user_id"],
+        "status": "STARTED"
+    })
 
-    if not candidate:
-        return jsonify({"error": "Candidate profile not found for this user"}), 400
+    session["exam_session_id"] = sid
 
-    exam = Exam.query.first()
-
-    if not exam:
-        return jsonify({"error": "No exam available"}), 400
-
-    new_session = ExamSession(
-        exam_id=exam.exam_id,
-        candidate_id=candidate.candidate_id
-    )
-
-    _db.session.add(new_session)
-    _db.session.commit()
-
-    session['exam_session_id'] = new_session.session_id
-
-    return jsonify({"session_id": new_session.session_id})
+    return jsonify({"session_id": sid})
 
 
-# ---------- LOGOUT ----------
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('index'))
+# =========================================================
+# RUN
+# =========================================================
 
-
-# ---------- RUN APPLICATION ----------
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
