@@ -69,6 +69,22 @@ with app.app_context():
     })
 
     # -----------------------------
+    # ADMIN USER
+    # -----------------------------
+    admin_id = get_next_id("users")
+    db.users.insert_one({
+        "_id": admin_id,
+        "full_name": "Demo Admin",
+        "username": "admin",
+        "email": "admin@test.com",
+        "password_hash": generate_password_hash("admin123"),
+        "role": "ADMIN",
+        "phone_no": None,
+        "created_at": datetime.now(timezone.utc),
+        "session_token": None,
+    })
+
+    # -----------------------------
     # CANDIDATE PROFILE ENTRY
     # -----------------------------
     cand_id = get_next_id("candidates")
@@ -131,3 +147,4 @@ with app.app_context():
     print("Candidate   -> student / student123")
     print("Invigilator -> invigilator / invigilator123")
     print("Examiner    -> examiner / examiner123")
+    print("Admin       -> admin / admin123")

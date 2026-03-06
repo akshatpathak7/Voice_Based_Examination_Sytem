@@ -109,6 +109,14 @@ def compute_integrity_hash(
 
     Returns the hex digest (64 chars).
     """
+    # Normalize to match MongoDB's storage format:
+    #   - Strip timezone (pymongo returns naive UTC datetimes)
+    #   - Truncate microseconds to milliseconds (BSON Date precision)
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.replace(tzinfo=None)
+    timestamp = timestamp.replace(
+        microsecond=(timestamp.microsecond // 1000) * 1000
+    )
     ts_str = timestamp.isoformat()
     message = f"{answer_text}|{question_id}|{session_id}|{ts_str}"
     return hmac.new(master_key, message.encode("utf-8"), hashlib.sha256).hexdigest()

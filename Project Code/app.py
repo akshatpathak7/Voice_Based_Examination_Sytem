@@ -180,7 +180,219 @@ def admin_dashboard():
     if 'user_id' not in session or session.get('role') != 'ADMIN':
         return redirect(url_for('show_login'))
 
-    return render_template('admin_dashboard.html')
+    if not verify_session():
+        session.clear()
+        flash("Your session has been ended because this account was logged in on another device.")
+        return redirect(url_for('show_login'))
+
+    db = get_db()
+
+    users = list(db.users.find())
+    exams = list(db.exams.find())
+    candidates = list(db.candidates.find())
+
+    # Enrich examiner assignments with names
+    examiner_assignments = []
+    for a in db.examiner_assignments.find():
+        examiner = db.users.find_one({"_id": a["examiner_id"]})
+        candidate = db.candidates.find_one({"_id": a["candidate_id"]})
+        student_user = db.users.find_one({"_id": candidate["reg_id"]}) if candidate else None
+        exam = db.exams.find_one({"_id": a["exam_id"]})
+        examiner_assignments.append({
+            "_id": a["_id"],
+            "examiner_name": examiner["full_name"] if examiner else "Unknown",
+            "student_name": student_user["full_name"] if student_user else "Unknown",
+            "registration_no": candidate.get("registration_no", "N/A") if candidate else "N/A",
+            "exam_name": exam["exam_name"] if exam else "Unknown",
+        })
+
+    # Invigilator assignments (exams created_by)
+    invigilator_assignments = []
+    for exam in exams:
+        inv = db.users.find_one({"_id": exam.get("created_by")})
+        if inv:
+            invigilator_assignments.append({
+                "exam_id": exam["_id"],
+                "invigilator_name": inv["full_name"],
+                "exam_name": exam["exam_name"],
+            })
+
+    return render_template(
+        'admin_dashboard.html',
+        users=users,
+        exams=exams,
+        candidates=candidates,
+        examiner_assignments=examiner_assignments,
+        invigilator_assignments=invigilator_assignments,
+    )
+
+
+# ---------- ADMIN: CREATE USER ----------
+
+@app.route('/admin/create_user', methods=['POST'])
+def admin_create_user():
+    db = get_db()
+
+    if session.get('role') != 'ADMIN':
+        return redirect(url_for('show_login'))
+
+    full_name = request.form.get('full_name', '').strip()
+    username = request.form.get('username', '').strip()
+    email = request.form.get('email', '').strip()
+    password = request.form.get('password', '').strip()
+    phone = request.form.get('phone_no', '').strip()
+    role = request.form.get('role', '').strip()
+    registration_no = request.form.get('registration_no', '').strip()
+
+    if role not in ('INVIGILATOR', 'EXAMINER', 'CANDIDATE', 'ADMIN'):
+        flash("Invalid role selected.")
+        return redirect(url_for('admin_dashboard'))
+
+    if not all([full_name, username, email, password]):
+        flash("All required fields must be filled.")
+        return redirect(url_for('admin_dashboard'))
+
+    if role == 'CANDIDATE' and not registration_no:
+        flash("Registration number is required for students.")
+        return redirect(url_for('admin_dashboard'))
+
+    if db.users.find_one({"username": username}):
+        flash(f"Username '{username}' already exists.")
+        return redirect(url_for('admin_dashboard'))
+
+    if db.users.find_one({"email": email}):
+        flash(f"Email '{email}' already exists.")
+        return redirect(url_for('admin_dashboard'))
+
+    if role == 'CANDIDATE' and db.candidates.find_one({"registration_no": registration_no}):
+        flash(f"Registration number '{registration_no}' already exists.")
+        return redirect(url_for('admin_dashboard'))
+
+    user_id = get_next_id("users")
+    db.users.insert_one({
+        "_id": user_id,
+        "full_name": full_name,
+        "username": username,
+        "email": email,
+        "password_hash": generate_password_hash(password),
+        "role": role,
+        "phone_no": phone or None,
+        "created_at": datetime.now(timezone.utc),
+        "session_token": None,
+    })
+
+    if role == 'CANDIDATE':
+        cand_id = get_next_id("candidates")
+        db.candidates.insert_one({
+            "_id": cand_id,
+            "reg_id": user_id,
+            "registration_no": registration_no,
+        })
+
+    flash(f"{role.title()} '{full_name}' created successfully (username: {username}).")
+    return redirect(url_for('admin_dashboard'))
+
+
+# ---------- ADMIN: DELETE STUDENT ----------
+
+@app.route('/admin/delete_student/<int:user_id>', methods=['POST'])
+def admin_delete_student(user_id):
+    db = get_db()
+
+    if session.get('role') != 'ADMIN':
+        return redirect(url_for('show_login'))
+
+    user = db.users.find_one({"_id": user_id})
+    if not user or user["role"] != 'CANDIDATE':
+        flash("Student not found.")
+        return redirect(url_for('admin_dashboard'))
+
+    # Cascade: candidate profile, assignments, sessions, answers
+    candidate = db.candidates.find_one({"reg_id": user_id})
+    if candidate:
+        # Remove examiner assignments for this candidate
+        db.examiner_assignments.delete_many({"candidate_id": candidate["_id"]})
+        # Remove exam sessions and their answers
+        sessions = list(db.exam_sessions.find({"candidate_id": candidate["_id"]}))
+        for sess in sessions:
+            db.answers.delete_many({"session_id": sess["_id"]})
+        db.exam_sessions.delete_many({"candidate_id": candidate["_id"]})
+        # Remove candidate profile
+        db.candidates.delete_one({"_id": candidate["_id"]})
+
+    db.users.delete_one({"_id": user_id})
+    flash(f"Student '{user['full_name']}' deleted successfully.")
+    return redirect(url_for('admin_dashboard'))
+
+
+# ---------- ADMIN: ASSIGN EXAMINER TO STUDENT ----------
+
+@app.route('/admin/assign_examiner', methods=['POST'])
+def admin_assign_examiner():
+    db = get_db()
+
+    if session.get('role') != 'ADMIN':
+        return redirect(url_for('show_login'))
+
+    examiner_id = int(request.form['examiner_id'])
+    candidate_id = int(request.form['candidate_id'])
+    exam_id = int(request.form['exam_id'])
+
+    # Check if assignment already exists
+    existing = db.examiner_assignments.find_one({
+        "examiner_id": examiner_id,
+        "candidate_id": candidate_id,
+        "exam_id": exam_id,
+    })
+    if existing:
+        flash("This assignment already exists.")
+        return redirect(url_for('admin_dashboard'))
+
+    assign_id = get_next_id("examiner_assignments")
+    db.examiner_assignments.insert_one({
+        "_id": assign_id,
+        "examiner_id": examiner_id,
+        "candidate_id": candidate_id,
+        "exam_id": exam_id,
+    })
+
+    flash("Examiner assigned to student successfully.")
+    return redirect(url_for('admin_dashboard'))
+
+
+# ---------- ADMIN: REMOVE EXAMINER ASSIGNMENT ----------
+
+@app.route('/admin/remove_examiner_assignment/<int:assign_id>', methods=['POST'])
+def admin_remove_examiner_assignment(assign_id):
+    db = get_db()
+
+    if session.get('role') != 'ADMIN':
+        return redirect(url_for('show_login'))
+
+    db.examiner_assignments.delete_one({"_id": assign_id})
+    flash("Examiner assignment removed.")
+    return redirect(url_for('admin_dashboard'))
+
+
+# ---------- ADMIN: ASSIGN INVIGILATOR TO EXAM ----------
+
+@app.route('/admin/assign_invigilator', methods=['POST'])
+def admin_assign_invigilator():
+    db = get_db()
+
+    if session.get('role') != 'ADMIN':
+        return redirect(url_for('show_login'))
+
+    invigilator_id = int(request.form['invigilator_id'])
+    exam_id = int(request.form['exam_id'])
+
+    # Update the exam's created_by to this invigilator
+    db.exams.update_one({"_id": exam_id}, {"$set": {"created_by": invigilator_id}})
+
+    inv = db.users.find_one({"_id": invigilator_id})
+    exam = db.exams.find_one({"_id": exam_id})
+    flash(f"Invigilator '{inv['full_name']}' assigned to '{exam['exam_name']}'.")
+    return redirect(url_for('admin_dashboard'))
 
 
 # ---------- CREATE STUDENT ACCOUNT ----------
