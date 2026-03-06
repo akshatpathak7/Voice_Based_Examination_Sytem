@@ -9,6 +9,8 @@ from models import init_app as init_db, get_db, get_next_id
 from werkzeug.security import check_password_hash, generate_password_hash
 from crypto_utils import (
     load_master_key,
+    generate_exam_key,
+    encrypt_exam_key,
     decrypt_exam_key,
     encrypt_answer,
     decrypt_answer,
@@ -459,6 +461,11 @@ def invigilator_dashboard():
     if session.get('role') != 'INVIGILATOR':
         return redirect(url_for('show_login'))
 
+    if not verify_session():
+        session.clear()
+        flash("Your session has been ended because this account was logged in on another device.")
+        return redirect(url_for('show_login'))
+
     db = get_db()
     exams = list(db.exams.find())
     sessions = list(db.exam_sessions.find())
@@ -468,6 +475,69 @@ def invigilator_dashboard():
         exams=exams,
         sessions=sessions
     )
+
+
+# ---------- CREATE EXAM ----------
+
+@app.route('/invigilator/create_exam', methods=['POST'])
+def create_exam():
+    db = get_db()
+
+    if session.get('role') not in ('INVIGILATOR', 'ADMIN'):
+        return jsonify({"error": "unauthorized"}), 401
+
+    exam_name = request.form.get('name', '').strip()
+    duration = request.form.get('duration', '60').strip()
+
+    if not exam_name:
+        flash("Exam name is required.")
+        return redirect(url_for('invigilator_dashboard'))
+
+    try:
+        duration = int(duration)
+    except ValueError:
+        duration = 60
+
+    # Generate and encrypt a per-exam AES key
+    exam_key = generate_exam_key()
+    enc_ct, enc_iv, enc_tag = encrypt_exam_key(exam_key, _master_key)
+
+    exam_id = get_next_id("exams")
+    db.exams.insert_one({
+        "_id": exam_id,
+        "exam_name": exam_name,
+        "duration": duration,
+        "total_marks": 100,
+        "created_by": session.get('user_id'),
+        "enc_key_ciphertext": enc_ct,
+        "enc_key_iv": enc_iv,
+        "enc_key_tag": enc_tag,
+    })
+
+    flash(f"Exam '{exam_name}' created successfully.")
+    return redirect(url_for('invigilator_dashboard'))
+
+
+# ---------- START EXAM (toggle availability) ----------
+
+@app.route('/invigilator/start_exam/<int:exam_id>')
+def start_exam_invigilator(exam_id):
+    if session.get('role') != 'INVIGILATOR':
+        return redirect(url_for('show_login'))
+
+    db = get_db()
+    exam = db.exams.find_one({"_id": exam_id})
+    if not exam:
+        flash("Exam not found.")
+        return redirect(url_for('invigilator_dashboard'))
+
+    # Toggle active status
+    current = exam.get("is_active", False)
+    db.exams.update_one({"_id": exam_id}, {"$set": {"is_active": not current}})
+
+    status = "activated" if not current else "deactivated"
+    flash(f"Exam '{exam['exam_name']}' {status}.")
+    return redirect(url_for('invigilator_dashboard'))
 
 
 # ---------- QUESTION CRUD APIS ----------
@@ -526,7 +596,7 @@ def update_question():
     return jsonify({"status": "updated"})
 
 
-@app.route('/invigilator/delete_question/<int:qid>')
+@app.route('/invigilator/delete_question/<int:qid>', methods=['POST'])
 def delete_question(qid):
     db = get_db()
 

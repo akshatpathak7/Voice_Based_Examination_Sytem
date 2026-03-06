@@ -1,16 +1,16 @@
 function loadQuestions(exam_id) {
 
     fetch('/invigilator/get_questions/' + exam_id)
-    .then(res => res.json())
-    .then(data => {
+        .then(res => res.json())
+        .then(data => {
 
-        let div = document.getElementById("questionArea");
+            let div = document.getElementById("questionArea");
 
-        div.innerHTML = "<h3>Manage Questions</h3>";
+            div.innerHTML = "<h3>Manage Questions</h3>";
 
-        data.forEach(q => {
+            data.forEach(q => {
 
-            div.innerHTML += `
+                div.innerHTML += `
             <div class="item">
             <input id='q${q.id}' value='${q.text}' size='60'>
 
@@ -19,14 +19,14 @@ function loadQuestions(exam_id) {
             <button class="btn danger" onclick='deleteQuestion(${q.id})'>Delete</button>
             </div>
             `;
-        });
+            });
 
-        div.innerHTML += `
+            div.innerHTML += `
         <br>
         <input id='newq' placeholder='New Question' size='60'>
         <button class="btn" onclick='addQuestion(${exam_id})'>Add Question</button>
         `;
-    });
+        });
 }
 
 function addQuestion(exam_id) {
@@ -45,7 +45,7 @@ function addQuestion(exam_id) {
 
 function updateQuestion(qid) {
 
-    let text = document.getElementById("q"+qid).value;
+    let text = document.getElementById("q" + qid).value;
 
     let form = new FormData();
     form.append("qid", qid);
@@ -59,23 +59,25 @@ function updateQuestion(qid) {
 
 function deleteQuestion(qid) {
 
-    fetch('/invigilator/delete_question/' + qid)
-    .then(() => location.reload());
+    fetch('/invigilator/delete_question/' + qid, {
+        method: 'POST'
+    })
+        .then(() => location.reload());
 }
 
 function viewAnswers(session_id) {
 
     fetch('/invigilator/get_answers/' + session_id)
-    .then(res => res.json())
-    .then(data => {
+        .then(res => res.json())
+        .then(data => {
 
-        let div = document.getElementById("answerArea");
+            let div = document.getElementById("answerArea");
 
-        div.innerHTML = "<h3>Evaluate Answers</h3>";
+            div.innerHTML = "<h3>Evaluate Answers</h3>";
 
-        data.forEach(a => {
+            data.forEach(a => {
 
-            div.innerHTML += `
+                div.innerHTML += `
             <div class="item">
 
             <b>${a.question}</b><br><br>
@@ -91,19 +93,19 @@ function viewAnswers(session_id) {
 
             </div>
             `;
-        });
+            });
 
-        div.innerHTML += `
+            div.innerHTML += `
         <button class="btn" onclick='viewResult(${session_id})'>
         View Total Result
         </button>
         `;
-    });
+        });
 }
 
 function saveMarks(answer_id) {
 
-    let marks = document.getElementById("m"+answer_id).value;
+    let marks = document.getElementById("m" + answer_id).value;
 
     let form = new FormData();
     form.append("answer_id", answer_id);
@@ -118,10 +120,10 @@ function saveMarks(answer_id) {
 function viewResult(session_id) {
 
     fetch('/invigilator/get_result/' + session_id)
-    .then(res => res.json())
-    .then(data => {
+        .then(res => res.json())
+        .then(data => {
 
-        alert("Total Marks: " + data.total_marks);
+            alert("Total Marks: " + data.total_marks);
 
-    });
+        });
 }

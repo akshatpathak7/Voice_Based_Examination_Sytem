@@ -8,11 +8,8 @@
 
   // ----- State -----
   const state = {
-    questions: [
-      "What is the capital of India?",
-      "Name the largest planet in our solar system.",
-      "Who wrote Romeo and Juliet?",
-    ],
+    questions: [],
+    questionIds: [],
     currentIndex: -1,
     answers: [],
     isListening: false,
@@ -359,12 +356,35 @@
       return;
     }
 
-    // Not a command — record as answer
+    // Not a command — record as answer and save to server
     if (state.currentIndex >= 0 && state.currentIndex < state.questions.length) {
       state.answers[state.currentIndex] = text;
       updateAnswerDisplay();
-      speak("Answer recorded. You may continue when ready.");
-      log(`Answer for Q${state.currentIndex + 1}: "${text}"`);
+
+      // Save to server via API
+      const questionId = state.questionIds[state.currentIndex];
+      fetch('/api/save_answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question_id: questionId,
+          answer: text
+        })
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) {
+            log(`Save error: ${data.error}`);
+            speak("There was an error saving your answer. Please try again.");
+          } else {
+            speak("Answer recorded and saved. You may continue when ready.");
+            log(`Answer for Q${state.currentIndex + 1} saved to server`);
+          }
+        })
+        .catch(err => {
+          log(`Network error saving answer: ${err}`);
+          speak("Answer recorded locally but could not save to server.");
+        });
     } else if (state.currentIndex === -1) {
       speak("Say next question to hear the first question.");
     } else if (state.currentIndex >= state.questions.length) {
@@ -752,6 +772,8 @@
     state.examActive = true;
     state.currentIndex = -1;
     state.answers = [];
+    state.questions = [];
+    state.questionIds = [];
 
     if (els.startBtn) {
       els.startBtn.disabled = true;
@@ -765,6 +787,10 @@
           log("Error: " + data.error);
           speak("Could not start exam. " + data.error);
           state.examActive = false;
+          if (els.startBtn) {
+            els.startBtn.disabled = false;
+            els.startBtn.textContent = "Start Exam";
+          }
           return;
         }
 
@@ -773,15 +799,36 @@
           log(`Timer set: ${data.duration_minutes} minutes`);
         }
 
-        speak(
-          "The exam has started. Say next question to hear your first question. " +
-          "You can say repeat question, read my answer, help me, or submit exam at any time."
-        );
-        log("Exam started");
+        // Load questions from server
+        return fetch("/api/questions")
+          .then((r) => r.json())
+          .then((questions) => {
+            if (questions.error) {
+              log("Error loading questions: " + questions.error);
+              speak("Could not load questions.");
+              return;
+            }
+
+            state.questions = questions.map((q) => q.text);
+            state.questionIds = questions.map((q) => q.id);
+            state.answers = new Array(state.questions.length);
+
+            log(`Loaded ${state.questions.length} questions`);
+            speak(
+              `The exam has started with ${state.questions.length} questions. Say next question to hear your first question. ` +
+              "You can say repeat question, read my answer, help me, or submit exam at any time."
+            );
+            log("Exam started");
+          });
       })
-      .catch(() => {
-        speak("The exam has started. Say next question to begin.");
-        log("Exam started (timer unavailable)");
+      .catch((err) => {
+        log("Error starting exam: " + err);
+        speak("Failed to start exam. Please try again.");
+        state.examActive = false;
+        if (els.startBtn) {
+          els.startBtn.disabled = false;
+          els.startBtn.textContent = "Start Exam";
+        }
       });
   }
 
