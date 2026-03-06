@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Exam — Student Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="exam-body">
+
+<div class="exam-container">
+
+    <!-- Header -->
+    <header class="exam-header">
+        <h1>Voice-Based Examination</h1>
+        <div class="status-bar">
+            <span id="status-dot" class="status-dot idle"></span>
+            <span id="status-text" class="status-label">Ready</span>
+        </div>
+        <div id="exam-timer" class="exam-timer">--:--</div>
+        <a href="/logout" class="logout-link">Logout</a>
+    </header>
+
+    <!-- Main content grid -->
+    <div class="exam-grid">
+
+        <!-- Left: Question + Transcript -->
+        <section class="panel question-panel">
+            <h2>Current Question</h2>
+            <div id="current-question" class="question-display">
+                Press <strong>Start Exam</strong> to begin.
+            </div>
+
+            <h2>Live Transcription</h2>
+            <div class="transcript-area">
+                <div id="interim-transcript" class="interim"></div>
+                <div id="final-transcript" class="final"></div>
+            </div>
+
+            <button id="start-exam-btn" class="btn-primary">Start Exam</button>
+        </section>
+
+        <!-- Right: Answers + Log -->
+        <aside class="panel sidebar-panel">
+            <h2>Your Answers</h2>
+            <ol id="answer-list" class="answer-list">
+                <li class="placeholder">No answers recorded yet.</li>
+            </ol>
+
+            <h2>Activity Log</h2>
+            <div id="activity-log" class="log-area">
+                <div class="log-entry">Waiting to start…</div>
+            </div>
+
+            <div class="command-help">
+                <h3>Voice Commands</h3>
+                <ul>
+                    <li><strong>"Next question"</strong> — move to the next question</li>
+                    <li><strong>"Skip question"</strong> — skip and come back later</li>
+                    <li><strong>"Go to question 3"</strong> — jump to any question by number</li>
+                    <li><strong>"Repeat question"</strong> — hear the question again</li>
+                    <li><strong>"Read my answer"</strong> — hear your recorded answer</li>
+                    <li><strong>"Clear answer"</strong> — delete your answer and redo it</li>
+                    <li><strong>"Time left"</strong> — hear remaining time</li>
+                    <li><strong>"Submit exam"</strong> — finish and submit</li>
+                    <li><strong>"Help me"</strong> — hear all commands</li>
+                </ul>
+            </div>
+        </aside>
+
+    </div>
+
+</div>
+
+<script src="{{ url_for('static', filename='voice.js') }}"></script>
+</body>
+</html>
