@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Submitted</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="login-box" style="width: 460px;">
+    <div style="font-size: 3rem; margin-bottom: 12px;">&#10003;</div>
+    <h2>Exam Submitted Successfully</h2>
+    <p style="margin: 16px 0; font-size: 15px; line-height: 1.6;">
+        Your answers have been recorded and encrypted securely.
+        They will be reviewed by your invigilator.
+    </p>
+    <p style="font-size: 13px; color: #888; margin-bottom: 20px;">
+        You may now close this window or log out.
+    </p>
+    <a href="/logout">
+        <button>Logout</button>
+    </a>
+</div>
+
+</body>
+</html>
