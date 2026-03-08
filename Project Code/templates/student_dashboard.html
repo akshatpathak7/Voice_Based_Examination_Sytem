@@ -18,7 +18,7 @@
             <span id="status-text" class="status-label">Ready</span>
         </div>
         <div id="exam-timer" class="exam-timer">--:--</div>
-        <a href="/logout" class="logout-link">Logout</a>
+        <a href="/candidate/logout" class="logout-link">Logout</a>
     </header>
 
     <!-- Main content grid -->
@@ -28,7 +28,11 @@
         <section class="panel question-panel">
             <h2>Current Question</h2>
             <div id="current-question" class="question-display">
-                Press <strong>Start Exam</strong> to begin.
+                {% if invigilator_started %}
+                The invigilator has started your exam. Press <strong>Start Exam</strong> to begin.
+                {% else %}
+                You can start the exam only after the invigilator has <strong>assigned you to an exam</strong> and <strong>started</strong> it. Wait for the invigilator to start the exam.
+                {% endif %}
             </div>
 
             <h2>Live Transcription</h2>
@@ -37,7 +41,7 @@
                 <div id="final-transcript" class="final"></div>
             </div>
 
-            <button id="start-exam-btn" class="btn-primary">Start Exam</button>
+            <button id="start-exam-btn" class="btn-primary" {% if not invigilator_started %}disabled{% endif %}>Start Exam</button>
         </section>
 
         <!-- Right: Answers + Log -->
@@ -75,9 +79,45 @@
 <script src="{{ url_for('static', filename='voice.js') }}"></script>
 <script>
 (function() {
+  // Session check: redirect to login if logged out elsewhere
   setInterval(function() {
     fetch('/api/session_check', { credentials: 'same-origin' })
       .then(function(r) { if (r.status === 401) window.location.href = '/login'; })
+      .catch(function() {});
+  }, 2500);
+
+  // Poll exam status: enable Start Exam when invigilator has started; auto-start only on transition false -> true
+  var previousInvigilatorStarted = null;
+  var examStatusInterval = setInterval(function() {
+    if (window._examAutoStarted) {
+      clearInterval(examStatusInterval);
+      return;
+    }
+    var btn = document.getElementById('start-exam-btn');
+    fetch('/api/exam_status', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var now = data.invigilator_started;
+        if (now === true && btn) {
+          btn.disabled = false;
+          var q = document.getElementById('current-question');
+          if (q && !window._examAutoStarted) q.innerHTML = 'The invigilator has started your exam. Press <strong>Start Exam</strong> to begin.';
+        }
+        if (previousInvigilatorStarted === null) {
+          previousInvigilatorStarted = now;
+          return;
+        }
+        if (previousInvigilatorStarted === false && now === true && !window._examAutoStarted && btn && !btn.disabled) {
+          window._examAutoStarted = true;
+          previousInvigilatorStarted = true;
+          clearInterval(examStatusInterval);
+          var q = document.getElementById('current-question');
+          if (q) q.innerHTML = 'The invigilator has started your exam. <strong>Starting now…</strong>';
+          if (typeof window.startExam === 'function') window.startExam();
+        } else {
+          previousInvigilatorStarted = now;
+        }
+      })
       .catch(function() {});
   }, 2500);
 })();

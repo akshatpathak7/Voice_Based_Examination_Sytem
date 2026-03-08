@@ -116,7 +116,7 @@ input {
 <!-- HEADER -->
 <div class="header">
     <h2>Invigilator Control Panel</h2>
-    <a class="logout" href="/logout">Logout</a>
+    <a class="logout" href="/invigilator/logout">Logout</a>
 </div>
 
 <div class="container">
@@ -147,6 +147,39 @@ input {
     <button class="btn btn-success">Create Student</button>
 </form>
 
+</div>
+
+<!-- ASSIGN STUDENT TO EXAM -->
+<div class="card">
+<div class="section-title">Assign student to exam</div>
+<form action="/invigilator/assign_student_exam" method="post" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+    <select name="candidate_id" required style="min-width: 180px;">
+        <option value="">Select student</option>
+        {% for c in candidates %}
+        <option value="{{ c._id }}">{{ c.full_name }} ({{ c.registration_no }})</option>
+        {% endfor %}
+    </select>
+    <select name="exam_id" required style="min-width: 220px;">
+        <option value="">Select exam</option>
+        {% for e in exams %}
+        <option value="{{ e._id }}">{{ e.exam_name }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-success">Assign</button>
+</form>
+{% if exam_assignments|length > 0 %}
+<p style="margin-top: 12px; margin-bottom: 6px;"><strong>Current assignments (invigilator):</strong></p>
+<ul style="margin: 0; padding-left: 20px;">
+{% for a in exam_assignments %}
+<li style="margin: 4px 0;">
+    {{ a.candidate_name }} → {{ a.exam_name }}
+    <form action="/invigilator/unassign_student_exam/{{ a._id }}" method="post" style="display: inline; margin-left: 8px;">
+        <button type="submit" class="btn btn-danger" style="padding: 2px 8px; font-size: 12px;">Remove</button>
+    </form>
+</li>
+{% endfor %}
+</ul>
+{% endif %}
 </div>
 
 <!-- CREATE EXAM -->

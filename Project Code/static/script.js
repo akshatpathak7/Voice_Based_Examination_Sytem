@@ -1,68 +1,96 @@
+// Keep current exam id so delete can refresh the list
+let _currentExamId = null;
+
+function escapeAttr(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 function loadQuestions(exam_id) {
-
-    fetch('/invigilator/get_questions/' + exam_id)
-        .then(res => res.json())
-        .then(data => {
-
+    _currentExamId = exam_id;
+    fetch('/invigilator/get_questions/' + exam_id, { credentials: 'same-origin' })
+        .then(function (res) {
+            if (!res.ok) {
+                throw new Error(res.status === 401 ? 'Session expired. Please log in again.' : 'Failed to load questions.');
+            }
+            return res.json();
+        })
+        .then(function (data) {
             let div = document.getElementById("questionArea");
-
+            if (!Array.isArray(data)) {
+                div.innerHTML = "<h3>Manage Questions</h3><p class='error'>Unexpected response. Please try again.</p>";
+                return;
+            }
             div.innerHTML = "<h3>Manage Questions</h3>";
-
-            data.forEach(q => {
-
-                div.innerHTML += `
-            <div class="item">
-            <input id='q${q.id}' value='${q.text}' size='60'>
-
-            <button class="btn" onclick='updateQuestion(${q.id})'>Update</button>
-
-            <button class="btn danger" onclick='deleteQuestion(${q.id})'>Delete</button>
-            </div>
-            `;
+            data.forEach(function (q) {
+                var safeText = escapeAttr(q.text);
+                div.innerHTML +=
+                    "<div class='item'>" +
+                    "<input id='q" + q.id + "' value=\"" + safeText + "\" size='60'>" +
+                    "<button class='btn' onclick='updateQuestion(" + q.id + ")'>Update</button>" +
+                    "<button class='btn danger' onclick='deleteQuestion(" + q.id + ")'>Delete</button>" +
+                    "</div>";
             });
-
-            div.innerHTML += `
-        <br>
-        <input id='newq' placeholder='New Question' size='60'>
-        <button class="btn" onclick='addQuestion(${exam_id})'>Add Question</button>
-        `;
+            div.innerHTML += "<br><input id='newq' placeholder='New Question' size='60'>" +
+                "<button class='btn' onclick='addQuestion(" + exam_id + ")'>Add Question</button>";
+        })
+        .catch(function (err) {
+            let div = document.getElementById("questionArea");
+            div.innerHTML = "<h3>Manage Questions</h3><p class='error'>" + escapeAttr(err.message) + "</p>";
         });
 }
 
 function addQuestion(exam_id) {
-
-    let text = document.getElementById("newq").value;
-
-    let form = new FormData();
+    var text = document.getElementById("newq").value;
+    if (!text || !text.trim()) {
+        alert("Please enter question text.");
+        return;
+    }
+    var form = new FormData();
     form.append("exam_id", exam_id);
-    form.append("text", text);
-
-    fetch('/invigilator/add_question', {
-        method: "POST",
-        body: form
-    }).then(() => loadQuestions(exam_id));
+    form.append("text", text.trim());
+    fetch('/invigilator/add_question', { method: "POST", body: form, credentials: 'same-origin' })
+        .then(function (res) {
+            if (!res.ok) throw new Error("Failed to add question.");
+            return res.json();
+        })
+        .then(function () {
+            document.getElementById("newq").value = "";
+            loadQuestions(exam_id);
+        })
+        .catch(function () { alert("Failed to add question. Try again."); });
 }
 
 function updateQuestion(qid) {
-
-    let text = document.getElementById("q" + qid).value;
-
-    let form = new FormData();
+    var text = document.getElementById("q" + qid).value;
+    var form = new FormData();
     form.append("qid", qid);
     form.append("text", text);
-
-    fetch('/invigilator/update_question', {
-        method: "POST",
-        body: form
-    }).then(() => alert("Updated Successfully"));
+    fetch('/invigilator/update_question', { method: "POST", body: form, credentials: 'same-origin' })
+        .then(function (res) {
+            if (!res.ok) throw new Error("Failed to update.");
+            return res.json();
+        })
+        .then(function () { alert("Updated successfully."); })
+        .catch(function () { alert("Failed to update question. Try again."); });
 }
 
 function deleteQuestion(qid) {
-
-    fetch('/invigilator/delete_question/' + qid, {
-        method: 'POST'
-    })
-        .then(() => location.reload());
+    if (!confirm("Delete this question?")) return;
+    fetch('/invigilator/delete_question/' + qid, { method: "POST", credentials: 'same-origin' })
+        .then(function (res) {
+            if (!res.ok) throw new Error("Failed to delete.");
+            if (_currentExamId != null) loadQuestions(_currentExamId);
+            else location.reload();
+        })
+        .catch(function () {
+            alert("Failed to delete question. Try again.");
+        });
 }
 
 function viewAnswers(session_id) {

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, g
 import math
 import os
 import re
@@ -99,21 +99,7 @@ def index():
 # ---------- SHOW LOGIN PAGE ----------
 @app.route('/login', methods=['GET'])
 def show_login():
-    # Already logged in (same browser)? Don't show the form — redirect to dashboard.
-    if session.get("user_id") is not None and verify_session():
-        user = get_db().users.find_one({"_id": session["user_id"]})
-        if user:
-            flash("You are already logged in. Only one active session is allowed.")
-            role = user.get("role", "")
-            if role == "INVIGILATOR":
-                return redirect(url_for("invigilator_dashboard"))
-            if role == "CANDIDATE":
-                return redirect(url_for("candidate_dashboard"))
-            if role == "ADMIN":
-                return redirect(url_for("admin_dashboard"))
-            if role == "EXAMINER":
-                return redirect(url_for("examiner_dashboard"))
-        return redirect(url_for("index"))
+    # If any role is already logged in, we don't redirect (user may want to log in as another role in another tab).
     return render_template('login.html')
 
 
@@ -134,31 +120,41 @@ def login():
         flash("Invalid username or password")
         return redirect(url_for('show_login'))
 
-    # Same browser: already logged in as this user? Don't create a new session.
-    if (
-        session.get("user_id") is not None
-        and int(session.get("user_id")) == int(user["_id"])
-        and verify_session()
-    ):
-        flash("You are already logged in. Only one active session is allowed.")
-        if user["role"] == "INVIGILATOR":
-            return redirect(url_for("invigilator_dashboard"))
-        if user["role"] == "CANDIDATE":
-            return redirect(url_for("candidate_dashboard"))
-        if user["role"] == "ADMIN":
-            return redirect(url_for("admin_dashboard"))
-        if user["role"] == "EXAMINER":
-            return redirect(url_for("examiner_dashboard"))
-        return redirect(url_for("index"))
+    role = user["role"]
+    accounts = session.get("accounts") or {}
+    existing = accounts.get(role)
 
+    # Only block when it's the SAME user (same user_id): same login, same role, valid session.
+    # Different user (different ID) same role => allow login and replace the account.
+    def _same_user_id(account, u):
+        if not account or not u:
+            return False
+        eid, uid = account.get("user_id"), u.get("_id")
+        if eid is None or uid is None:
+            return False
+        try:
+            return int(eid) == int(uid)
+        except (TypeError, ValueError):
+            return False
+
+    if (
+        existing is not None
+        and _same_user_id(existing, user)
+        and verify_session_for_role(role, existing)
+    ):
+        flash("You are already logged in as this user. Use your other tab or go to dashboard.", "already_logged_in")
+        return redirect(url_for("show_login"))
+
+    # New or replacing session: issue new token (invalidates any other device/tab with old token)
     token = secrets.token_hex(32)
     db.users.update_one({"_id": user["_id"]}, {"$set": {"session_token": token}})
 
-    session['user_id'] = user["_id"]
-    session['role'] = user["role"]
-    session['session_token'] = token
+    accounts[role] = {"user_id": user["_id"], "session_token": token}
+    if role == "CANDIDATE":
+        accounts[role]["exam_session_id"] = None  # set when they start exam
+    session["accounts"] = accounts
 
-    if user["role"] == 'INVIGILATOR':
+    if role == 'INVIGILATOR':
         return redirect(url_for('invigilator_dashboard'))
 
     elif user["role"] == 'CANDIDATE':
@@ -173,19 +169,53 @@ def login():
     return redirect(url_for('index'))
 
 
-# ---------- SESSION GUARD ----------
+@app.route('/go')
+def go_to_dashboard():
+    """If user has a valid session for any role, redirect to that dashboard. Else index."""
+    accounts = session.get("accounts") or {}
+    for role in ("ADMIN", "INVIGILATOR", "EXAMINER", "CANDIDATE"):
+        acc = accounts.get(role)
+        if acc and verify_session_for_role(role, acc):
+            if role == "INVIGILATOR":
+                return redirect(url_for("invigilator_dashboard"))
+            if role == "CANDIDATE":
+                return redirect(url_for("candidate_dashboard"))
+            if role == "ADMIN":
+                return redirect(url_for("admin_dashboard"))
+            if role == "EXAMINER":
+                return redirect(url_for("examiner_dashboard"))
+    return redirect(url_for("index"))
 
-def verify_session():
-    """Return True if the current Flask session token matches the DB.
 
-    When another device logs in with the same credentials, the DB token
-    is replaced, invalidating all previous sessions for that user.
-    """
-    db = get_db()
-    uid = session.get('user_id')
-    token = session.get('session_token')
+# ---------- SESSION GUARD (multi-account: one login per role in same browser) ----------
+
+def get_request_role():
+    """Return the role required for this path, or None for public routes."""
+    path = request.path
+    if path in ("/", "/login", "/logout", "/exam/submitted", "/go") or path.startswith("/static/"):
+        return None
+    if path.startswith("/candidate"):
+        return "CANDIDATE"
+    if path.startswith("/admin"):
+        return "ADMIN"
+    if path.startswith("/invigilator"):
+        return "INVIGILATOR"
+    if path.startswith("/examiner"):
+        return "EXAMINER"
+    if path.startswith("/api/"):
+        return "CANDIDATE"
+    return None
+
+
+def verify_session_for_role(role, account):
+    """Return True if this account's token matches the DB (single session per user per role)."""
+    if not account:
+        return False
+    uid = account.get("user_id")
+    token = account.get("session_token")
     if not uid or not token:
         return False
+    db = get_db()
     user = db.users.find_one({"_id": uid})
     if not user:
         return False
@@ -194,52 +224,62 @@ def verify_session():
 
 @app.before_request
 def enforce_single_session():
-    """Ensure only one active login per user. If this request has a session
-    but the DB token no longer matches (e.g. login in another tab), clear
-    session and redirect or return 401.
+    """Validate the session for the current request's role. One login per user per role;
+    different roles (e.g. student + invigilator) can be logged in in different tabs.
     """
-    if "user_id" not in session:
-        return None
-    # Skip public pages and logout
-    if request.path in ("/", "/login", "/logout", "/exam/submitted") or request.path.startswith("/static/"):
+    role = get_request_role()
+    if role is None:
         return None
 
-    if verify_session():
-        return None
+    accounts = session.get("accounts") or {}
+    account = accounts.get(role)
+    if account is None:
+        if request.path.startswith("/api/") or "application/json" in request.headers.get("Accept", ""):
+            return jsonify({"error": "session_expired"}), 401
+        return redirect(url_for("show_login"))
 
-    session.clear()
-    flash("Your session has been ended because this account was logged in on another device.")
-    # API / fetch requests get JSON so the frontend can handle it
-    if request.path.startswith("/api/") or "application/json" in request.headers.get("Accept", ""):
-        return jsonify({"error": "session_expired"}), 401
-    return redirect(url_for("show_login"))
+    if not verify_session_for_role(role, account):
+        accounts.pop(role, None)
+        session["accounts"] = accounts
+        flash("Your session has been ended because this account was logged in on another device.")
+        if request.path.startswith("/api/") or "application/json" in request.headers.get("Accept", ""):
+            return jsonify({"error": "session_expired"}), 401
+        return redirect(url_for("show_login"))
+
+    g.current_user_id = account["user_id"]
+    g.current_role = role
+    g.exam_session_id = account.get("exam_session_id") if role == "CANDIDATE" else None
 
 
 # ---------- DASHBOARDS ----------
 
 @app.route('/candidate/dashboard')
 def candidate_dashboard():
-
-    if 'user_id' not in session or session.get('role') != 'CANDIDATE':
+    db = get_db()
+    if g.current_role != 'CANDIDATE':
         return redirect(url_for('show_login'))
 
-    if not verify_session():
-        session.clear()
-        flash("Your session has been ended because this account was logged in on another device.")
-        return redirect(url_for('show_login'))
+    # Check if invigilator already started the exam for this student (they have a pending session)
+    candidate = db.candidates.find_one({"reg_id": g.current_user_id})
+    exam = _get_active_exam(db)
+    invigilator_started = False
+    if candidate and exam:
+        invigilator_started = db.exam_sessions.find_one({
+            "candidate_id": candidate["_id"],
+            "exam_id": exam["_id"],
+            "status": {"$ne": "SUBMITTED"},
+        }) is not None
 
-    return render_template('student_dashboard.html')
+    return render_template(
+        'student_dashboard.html',
+        invigilator_started=invigilator_started,
+    )
 
 
 @app.route('/admin/dashboard')
 def admin_dashboard():
 
-    if 'user_id' not in session or session.get('role') != 'ADMIN':
-        return redirect(url_for('show_login'))
-
-    if not verify_session():
-        session.clear()
-        flash("Your session has been ended because this account was logged in on another device.")
+    if g.current_role != 'ADMIN':
         return redirect(url_for('show_login'))
 
     db = get_db()
@@ -290,7 +330,7 @@ def admin_dashboard():
 def admin_create_user():
     db = get_db()
 
-    if session.get('role') != 'ADMIN':
+    if g.current_role != 'ADMIN':
         return redirect(url_for('show_login'))
 
     full_name = request.form.get('full_name', '').strip()
@@ -356,7 +396,7 @@ def admin_create_user():
 def admin_delete_student(user_id):
     db = get_db()
 
-    if session.get('role') != 'ADMIN':
+    if g.current_role != 'ADMIN':
         return redirect(url_for('show_login'))
 
     user = db.users.find_one({"_id": user_id})
@@ -388,7 +428,7 @@ def admin_delete_student(user_id):
 def admin_assign_examiner():
     db = get_db()
 
-    if session.get('role') != 'ADMIN':
+    if g.current_role != 'ADMIN':
         return redirect(url_for('show_login'))
 
     examiner_id = int(request.form['examiner_id'])
@@ -423,7 +463,7 @@ def admin_assign_examiner():
 def admin_remove_examiner_assignment(assign_id):
     db = get_db()
 
-    if session.get('role') != 'ADMIN':
+    if g.current_role != 'ADMIN':
         return redirect(url_for('show_login'))
 
     db.examiner_assignments.delete_one({"_id": assign_id})
@@ -437,7 +477,7 @@ def admin_remove_examiner_assignment(assign_id):
 def admin_assign_invigilator():
     db = get_db()
 
-    if session.get('role') != 'ADMIN':
+    if g.current_role != 'ADMIN':
         return redirect(url_for('show_login'))
 
     invigilator_id = int(request.form['invigilator_id'])
@@ -458,7 +498,7 @@ def admin_assign_invigilator():
 def create_student():
     db = get_db()
     allowed_roles = ('INVIGILATOR', 'ADMIN')
-    if session.get('role') not in allowed_roles:
+    if g.current_role not in allowed_roles:
         return jsonify({"error": "unauthorized"}), 401
 
     full_name = request.form.get('full_name', '').strip()
@@ -508,27 +548,89 @@ def create_student():
     return redirect(request.referrer or url_for('invigilator_dashboard'))
 
 
+# ---------- INVIGILATOR: ASSIGN STUDENT TO EXAM ----------
+
+@app.route('/invigilator/assign_student_exam', methods=['POST'])
+def assign_student_exam():
+    db = get_db()
+    if g.current_role != 'INVIGILATOR':
+        return redirect(url_for('show_login'))
+
+    candidate_id = int(request.form.get('candidate_id'))
+    exam_id = int(request.form.get('exam_id'))
+
+    existing = db.exam_assignments.find_one({
+        "candidate_id": candidate_id,
+        "exam_id": exam_id,
+    })
+    if existing:
+        flash("This student is already assigned to that exam.")
+        return redirect(url_for('invigilator_dashboard'))
+
+    assign_id = get_next_id("exam_assignments")
+    db.exam_assignments.insert_one({
+        "_id": assign_id,
+        "candidate_id": candidate_id,
+        "exam_id": exam_id,
+        "assigned_by": g.current_user_id,
+    })
+    flash("Student assigned to exam.")
+    return redirect(url_for('invigilator_dashboard'))
+
+
+@app.route('/invigilator/unassign_student_exam/<int:assign_id>', methods=['POST'])
+def unassign_student_exam(assign_id):
+    db = get_db()
+    if g.current_role != 'INVIGILATOR':
+        return redirect(url_for('show_login'))
+
+    db.exam_assignments.delete_one({"_id": assign_id})
+    flash("Student unassigned from exam.")
+    return redirect(url_for('invigilator_dashboard'))
+
+
 # ---------- INVIGILATOR DASHBOARD (SINGLE PAGE) ----------
 
 @app.route('/invigilator/dashboard')
 def invigilator_dashboard():
 
-    if session.get('role') != 'INVIGILATOR':
-        return redirect(url_for('show_login'))
-
-    if not verify_session():
-        session.clear()
-        flash("Your session has been ended because this account was logged in on another device.")
+    if g.current_role != 'INVIGILATOR':
         return redirect(url_for('show_login'))
 
     db = get_db()
     exams = list(db.exams.find())
     sessions = list(db.exam_sessions.find())
 
+    # Candidates (students) for assign-student-to-exam
+    candidates = []
+    for c in db.candidates.find():
+        u = db.users.find_one({"_id": c["reg_id"]})
+        candidates.append({
+            "_id": c["_id"],
+            "full_name": u["full_name"] if u else "Unknown",
+            "registration_no": c.get("registration_no", "N/A"),
+        })
+
+    # Invigilator-created exam assignments (candidate + exam)
+    exam_assignments = []
+    for a in db.exam_assignments.find():
+        c = db.candidates.find_one({"_id": a["candidate_id"]})
+        u = db.users.find_one({"_id": c["reg_id"]}) if c else None
+        ex = db.exams.find_one({"_id": a["exam_id"]})
+        exam_assignments.append({
+            "_id": a["_id"],
+            "candidate_name": u["full_name"] if u else "Unknown",
+            "exam_name": ex["exam_name"] if ex else "Unknown",
+            "candidate_id": a["candidate_id"],
+            "exam_id": a["exam_id"],
+        })
+
     return render_template(
         'invigilator_dashboard.html',
         exams=exams,
-        sessions=sessions
+        sessions=sessions,
+        candidates=candidates,
+        exam_assignments=exam_assignments,
     )
 
 
@@ -538,7 +640,7 @@ def invigilator_dashboard():
 def create_exam():
     db = get_db()
 
-    if session.get('role') not in ('INVIGILATOR', 'ADMIN'):
+    if g.current_role not in ('INVIGILATOR', 'ADMIN'):
         return jsonify({"error": "unauthorized"}), 401
 
     exam_name = request.form.get('name', '').strip()
@@ -563,7 +665,7 @@ def create_exam():
         "exam_name": exam_name,
         "duration": duration,
         "total_marks": 100,
-        "created_by": session.get('user_id'),
+        "created_by": g.current_user_id,
         "enc_key_ciphertext": enc_ct,
         "enc_key_iv": enc_iv,
         "enc_key_tag": enc_tag,
@@ -573,11 +675,19 @@ def create_exam():
     return redirect(url_for('invigilator_dashboard'))
 
 
-# ---------- START EXAM (toggle availability) ----------
+# ---------- START EXAM (invigilator starts for all assigned students) ----------
+
+def _get_active_exam(db):
+    """Return the exam that is currently active (is_active=True), or the first exam."""
+    exam = db.exams.find_one({"is_active": True})
+    if exam:
+        return exam
+    return db.exams.find_one()
+
 
 @app.route('/invigilator/start_exam/<int:exam_id>')
 def start_exam_invigilator(exam_id):
-    if session.get('role') != 'INVIGILATOR':
+    if g.current_role != 'INVIGILATOR':
         return redirect(url_for('show_login'))
 
     db = get_db()
@@ -586,12 +696,42 @@ def start_exam_invigilator(exam_id):
         flash("Exam not found.")
         return redirect(url_for('invigilator_dashboard'))
 
-    # Toggle active status
-    current = exam.get("is_active", False)
-    db.exams.update_one({"_id": exam_id}, {"$set": {"is_active": not current}})
+    # Set this exam as the only active one; deactivate others
+    db.exams.update_many({}, {"$set": {"is_active": False}})
+    db.exams.update_one({"_id": exam_id}, {"$set": {"is_active": True}})
 
-    status = "activated" if not current else "deactivated"
-    flash(f"Exam '{exam['exam_name']}' {status}.")
+    # Candidates assigned via examiner_assignments (admin) or exam_assignments (invigilator)
+    candidate_ids = set()
+    for a in db.examiner_assignments.find({"exam_id": exam_id}):
+        candidate_ids.add(a["candidate_id"])
+    for a in db.exam_assignments.find({"exam_id": exam_id}):
+        candidate_ids.add(a["candidate_id"])
+    candidate_ids = list(candidate_ids)
+
+    created = 0
+    for cid in candidate_ids:
+        # Only create if they don't already have a non-submitted session for this exam
+        existing = db.exam_sessions.find_one({
+            "candidate_id": cid,
+            "exam_id": exam_id,
+            "status": {"$ne": "SUBMITTED"},
+        })
+        if not existing:
+            session_id = get_next_id("exam_sessions")
+            db.exam_sessions.insert_one({
+                "_id": session_id,
+                "exam_id": exam_id,
+                "candidate_id": cid,
+                "start_time": datetime.now(timezone.utc),
+                "end_time": None,
+                "status": "STARTED",
+            })
+            created += 1
+
+    flash(
+        f"Exam '{exam['exam_name']}' started. "
+        f"Session created for {created} student(s) (total assigned: {len(candidate_ids)})."
+    )
     return redirect(url_for('invigilator_dashboard'))
 
 
@@ -601,7 +741,7 @@ def start_exam_invigilator(exam_id):
 def get_exam_questions(exam_id):
     db = get_db()
 
-    if session.get('role') != 'INVIGILATOR':
+    if g.current_role != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
     questions = list(db.questions.find({"exam_id": exam_id}))
@@ -620,7 +760,7 @@ def get_exam_questions(exam_id):
 def add_question():
     db = get_db()
 
-    if session.get('role') != 'INVIGILATOR':
+    if g.current_role != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
     exam_id = int(request.form['exam_id'])
@@ -640,7 +780,7 @@ def add_question():
 def update_question():
     db = get_db()
 
-    if session.get('role') != 'INVIGILATOR':
+    if g.current_role != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
     qid = int(request.form['qid'])
@@ -655,7 +795,7 @@ def update_question():
 def delete_question(qid):
     db = get_db()
 
-    if session.get('role') != 'INVIGILATOR':
+    if g.current_role != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
     db.questions.delete_one({"_id": qid})
@@ -669,7 +809,7 @@ def delete_question(qid):
 def save_marks():
     db = get_db()
 
-    if session.get('role') != 'INVIGILATOR':
+    if g.current_role != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
     answer_id = int(request.form['answer_id'])
@@ -684,7 +824,7 @@ def save_marks():
 def get_answers(session_id):
     db = get_db()
 
-    if session.get('role') != 'INVIGILATOR':
+    if g.current_role != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
     exam_sess = db.exam_sessions.find_one({"_id": session_id})
@@ -735,7 +875,7 @@ def get_answers(session_id):
 def get_result(session_id):
     db = get_db()
 
-    if session.get('role') != 'INVIGILATOR':
+    if g.current_role != 'INVIGILATOR':
         return jsonify({"error": "unauthorized"}), 401
 
     answers = list(db.answers.find({"session_id": session_id}))
@@ -756,15 +896,9 @@ def session_check():
 @app.route('/api/questions')
 def get_questions():
     db = get_db()
-
-    if 'user_id' not in session:
-        return jsonify({"error": "not logged in"}), 401
-
-    if not verify_session():
-        session.clear()
-        return jsonify({"error": "session_expired"}), 401
-
-    exam = db.exams.find_one()
+    exam = _get_active_exam(db)
+    if not exam:
+        return jsonify({"error": "No exam available"}), 400
 
     questions = list(db.questions.find({"exam_id": exam["_id"]}))
 
@@ -782,16 +916,12 @@ def get_questions():
 def save_answer():
     db = get_db()
 
-    if 'exam_session_id' not in session:
+    if g.exam_session_id is None:
         return jsonify({"error": "session not started"}), 400
-
-    if not verify_session():
-        session.clear()
-        return jsonify({"error": "session_expired"}), 401
 
     data = request.get_json()
     question_id = data['question_id']
-    session_id = session['exam_session_id']
+    session_id = g.exam_session_id
 
     question = db.questions.find_one({"_id": question_id})
     normalized_answer = normalize_answer(
@@ -833,44 +963,54 @@ def save_answer():
     })
 
 
+@app.route('/api/exam_status')
+def exam_status():
+    """Return whether invigilator has started an exam for this student (so student UI can poll and auto-start)."""
+    db = get_db()
+    candidate = db.candidates.find_one({"reg_id": g.current_user_id})
+    if not candidate:
+        return jsonify({"invigilator_started": False})
+    exam = _get_active_exam(db)
+    if not exam:
+        return jsonify({"invigilator_started": False})
+    has_session = db.exam_sessions.find_one({
+        "candidate_id": candidate["_id"],
+        "exam_id": exam["_id"],
+        "status": {"$ne": "SUBMITTED"},
+    }) is not None
+    return jsonify({"invigilator_started": has_session})
+
+
 @app.route('/api/start_exam')
 def start_exam():
     db = get_db()
-
-    if 'user_id' not in session:
-        return jsonify({"error": "not logged in"}), 401
-
-    if not verify_session():
-        session.clear()
-        return jsonify({"error": "session_expired"}), 401
-
-    user_id = session['user_id']
-
+    user_id = g.current_user_id
     candidate = db.candidates.find_one({"reg_id": user_id})
 
     if not candidate:
         return jsonify({"error": "Candidate profile not found for this user"}), 400
 
-    exam = db.exams.find_one()
-
+    exam = _get_active_exam(db)
     if not exam:
         return jsonify({"error": "No exam available"}), 400
 
-    session_id = get_next_id("exam_sessions")
-    db.exam_sessions.insert_one({
-        "_id": session_id,
-        "exam_id": exam["_id"],
+    # Student can start ONLY if invigilator already started the exam for them (session exists).
+    # Flow: invigilator assigns student to exam → invigilator starts exam → then student can start.
+    existing = db.exam_sessions.find_one({
         "candidate_id": candidate["_id"],
-        "start_time": datetime.now(timezone.utc),
-        "end_time": None,
-        "status": "STARTED",
+        "exam_id": exam["_id"],
+        "status": {"$ne": "SUBMITTED"},
     })
+    if not existing:
+        return jsonify({
+            "error": "You cannot start the exam yet. The invigilator must assign you to an exam and then start it. Wait for the invigilator to start the exam.",
+        }), 403
 
-    session['exam_session_id'] = session_id
-
+    session.setdefault("accounts", {}).setdefault("CANDIDATE", {})["exam_session_id"] = existing["_id"]
     return jsonify({
-        "session_id": session_id,
+        "session_id": existing["_id"],
         "duration_minutes": exam["duration"],
+        "invigilator_started": True,
     })
 
 
@@ -897,16 +1037,11 @@ def _examiner_can_access_session(db, examiner_id, session_id):
 
 @app.route('/examiner/dashboard')
 def examiner_dashboard():
-    if session.get('role') != 'EXAMINER':
-        return redirect(url_for('show_login'))
-
-    if not verify_session():
-        session.clear()
-        flash("Your session has been ended because this account was logged in on another device.")
+    if g.current_role != 'EXAMINER':
         return redirect(url_for('show_login'))
 
     db = get_db()
-    examiner_id = session['user_id']
+    examiner_id = g.current_user_id
 
     # Get all assignments for this examiner
     assignments = list(db.examiner_assignments.find({"examiner_id": examiner_id}))
@@ -941,10 +1076,10 @@ def examiner_dashboard():
 def get_student_answers(session_id):
     db = get_db()
 
-    if session.get('role') != 'EXAMINER':
+    if g.current_role != 'EXAMINER':
         return jsonify({"error": "unauthorized"}), 401
 
-    if not _examiner_can_access_session(db, session["user_id"], session_id):
+    if not _examiner_can_access_session(db, g.current_user_id, session_id):
         return jsonify({"error": "you are not assigned to grade this student's exam"}), 403
 
     exam_sess = db.exam_sessions.find_one({"_id": session_id})
@@ -997,7 +1132,7 @@ def get_student_answers(session_id):
 def examiner_save_grade():
     db = get_db()
 
-    if session.get('role') != 'EXAMINER':
+    if g.current_role != 'EXAMINER':
         return jsonify({"error": "unauthorized"}), 401
 
     answer_id = int(request.form['answer_id'])
@@ -1006,7 +1141,7 @@ def examiner_save_grade():
     answer_doc = db.answers.find_one({"_id": answer_id})
     if not answer_doc:
         return jsonify({"error": "answer not found"}), 404
-    if not _examiner_can_access_session(db, session["user_id"], answer_doc["session_id"]):
+    if not _examiner_can_access_session(db, g.current_user_id, answer_doc["session_id"]):
         return jsonify({"error": "you are not assigned to grade this student's exam"}), 403
 
     db.answers.update_one(
@@ -1073,7 +1208,7 @@ def _ai_score_answer(question_text, answer_text):
 def examiner_ai_grade():
     db = get_db()
 
-    if session.get('role') != 'EXAMINER':
+    if g.current_role != 'EXAMINER':
         return jsonify({"error": "unauthorized"}), 401
 
     answer_id = int(request.form['answer_id'])
@@ -1081,7 +1216,7 @@ def examiner_ai_grade():
 
     if not answer_doc:
         return jsonify({"error": "answer not found"}), 404
-    if not _examiner_can_access_session(db, session["user_id"], answer_doc["session_id"]):
+    if not _examiner_can_access_session(db, g.current_user_id, answer_doc["session_id"]):
         return jsonify({"error": "you are not assigned to grade this student's exam"}), 403
 
     # Decrypt the answer to score it
@@ -1121,10 +1256,10 @@ def examiner_ai_grade():
 def examiner_get_result(session_id):
     db = get_db()
 
-    if session.get('role') != 'EXAMINER':
+    if g.current_role != 'EXAMINER':
         return jsonify({"error": "unauthorized"}), 401
 
-    if not _examiner_can_access_session(db, session["user_id"], session_id):
+    if not _examiner_can_access_session(db, g.current_user_id, session_id):
         return jsonify({"error": "you are not assigned to grade this student's exam"}), 403
 
     answers = list(db.answers.find({"session_id": session_id}))
@@ -1134,12 +1269,42 @@ def examiner_get_result(session_id):
 
 
 # ---------- LOGOUT ----------
+def _logout_current_role():
+    """Remove only the current role from session so other tabs (other roles) stay logged in."""
+    accounts = session.get("accounts") or {}
+    if g.current_role:
+        accounts.pop(g.current_role, None)
+        session["accounts"] = accounts
+    return redirect(url_for('index'))
+
+
+@app.route('/candidate/logout')
+def candidate_logout():
+    return _logout_current_role()
+
+
+@app.route('/invigilator/logout')
+def invigilator_logout():
+    return _logout_current_role()
+
+
+@app.route('/admin/logout')
+def admin_logout():
+    return _logout_current_role()
+
+
+@app.route('/examiner/logout')
+def examiner_logout():
+    return _logout_current_role()
+
+
 @app.route('/logout')
 def logout():
+    """Legacy: clear entire session (e.g. from exam_submitted or unknown context)."""
     session.clear()
     return redirect(url_for('index'))
 
 
 # ---------- RUN APPLICATION ----------
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5002)

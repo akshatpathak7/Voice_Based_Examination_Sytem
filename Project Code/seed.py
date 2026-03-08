@@ -12,7 +12,7 @@ with app.app_context():
     # Drop all existing collections for a clean slate
     for col in ("users", "candidates", "exams", "questions",
                 "exam_sessions", "answers", "evaluations",
-                "examiner_assignments", "counters"):
+                "examiner_assignments", "exam_assignments", "counters"):
         db[col].drop()
 
     # Re-create unique indexes

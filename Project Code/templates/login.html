@@ -20,10 +20,13 @@
             <button type="submit">Login</button>
         </form>
 
-        {% with messages = get_flashed_messages() %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
-        {% for message in messages %}
+        {% for category, message in messages %}
         <p class="error">{{ message }}</p>
+        {% if category == 'already_logged_in' %}
+        <p><a href="/go">Go to dashboard</a></p>
+        {% endif %}
         {% endfor %}
         {% endif %}
         {% endwith %}
