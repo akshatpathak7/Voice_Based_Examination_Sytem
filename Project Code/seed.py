@@ -124,7 +124,7 @@ with app.app_context():
     })
 
     # -----------------------------
-    # SAMPLE PHYSICS SUBJECTIVE QUESTIONS
+    # SAMPLE PHYSICS SUBJECTIVE QUESTIONS (10-question demo exam)
     # -----------------------------
     question_texts = [
         "State Newton's three laws of motion and illustrate each law with a suitable example.",
@@ -132,6 +132,11 @@ with app.app_context():
         "What is refraction of light? Describe an everyday situation where refraction plays an important role and explain it scientifically.",
         "Define electric current, potential difference, and resistance. Explain the relationship between them using Ohm's law.",
         "Describe the difference between longitudinal and transverse waves, and give one real-world example of each type.",
+        "What is the difference between speed and velocity? Give an example where they differ.",
+        "Explain why the sky appears blue and the sun appears reddish at sunrise and sunset.",
+        "What is the law of conservation of momentum? Apply it to explain the recoil of a gun.",
+        "Define work, energy, and power. State their SI units and the relationship between them.",
+        "What is electromagnetic induction? Describe one practical application based on it.",
     ]
 
     for text in question_texts:

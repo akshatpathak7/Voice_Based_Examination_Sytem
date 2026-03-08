@@ -99,6 +99,21 @@ def index():
 # ---------- SHOW LOGIN PAGE ----------
 @app.route('/login', methods=['GET'])
 def show_login():
+    # Already logged in (same browser)? Don't show the form — redirect to dashboard.
+    if session.get("user_id") is not None and verify_session():
+        user = get_db().users.find_one({"_id": session["user_id"]})
+        if user:
+            flash("You are already logged in. Only one active session is allowed.")
+            role = user.get("role", "")
+            if role == "INVIGILATOR":
+                return redirect(url_for("invigilator_dashboard"))
+            if role == "CANDIDATE":
+                return redirect(url_for("candidate_dashboard"))
+            if role == "ADMIN":
+                return redirect(url_for("admin_dashboard"))
+            if role == "EXAMINER":
+                return redirect(url_for("examiner_dashboard"))
+        return redirect(url_for("index"))
     return render_template('login.html')
 
 
@@ -118,6 +133,23 @@ def login():
     if not check_password_hash(user["password_hash"], password):
         flash("Invalid username or password")
         return redirect(url_for('show_login'))
+
+    # Same browser: already logged in as this user? Don't create a new session.
+    if (
+        session.get("user_id") is not None
+        and int(session.get("user_id")) == int(user["_id"])
+        and verify_session()
+    ):
+        flash("You are already logged in. Only one active session is allowed.")
+        if user["role"] == "INVIGILATOR":
+            return redirect(url_for("invigilator_dashboard"))
+        if user["role"] == "CANDIDATE":
+            return redirect(url_for("candidate_dashboard"))
+        if user["role"] == "ADMIN":
+            return redirect(url_for("admin_dashboard"))
+        if user["role"] == "EXAMINER":
+            return redirect(url_for("examiner_dashboard"))
+        return redirect(url_for("index"))
 
     token = secrets.token_hex(32)
     db.users.update_one({"_id": user["_id"]}, {"$set": {"session_token": token}})
@@ -158,6 +190,29 @@ def verify_session():
     if not user:
         return False
     return user.get("session_token") == token
+
+
+@app.before_request
+def enforce_single_session():
+    """Ensure only one active login per user. If this request has a session
+    but the DB token no longer matches (e.g. login in another tab), clear
+    session and redirect or return 401.
+    """
+    if "user_id" not in session:
+        return None
+    # Skip public pages and logout
+    if request.path in ("/", "/login", "/logout", "/exam/submitted") or request.path.startswith("/static/"):
+        return None
+
+    if verify_session():
+        return None
+
+    session.clear()
+    flash("Your session has been ended because this account was logged in on another device.")
+    # API / fetch requests get JSON so the frontend can handle it
+    if request.path.startswith("/api/") or "application/json" in request.headers.get("Accept", ""):
+        return jsonify({"error": "session_expired"}), 401
+    return redirect(url_for("show_login"))
 
 
 # ---------- DASHBOARDS ----------
@@ -692,6 +747,12 @@ def get_result(session_id):
 
 # ---------- STUDENT EXAM APIS ----------
 
+@app.route('/api/session_check')
+def session_check():
+    """Lightweight check for single-session: if session invalid (e.g. logged in elsewhere), before_request returns 401."""
+    return jsonify({"ok": True})
+
+
 @app.route('/api/questions')
 def get_questions():
     db = get_db()
@@ -821,6 +882,19 @@ def exam_submitted():
 
 # ---------- EXAMINER DASHBOARD ----------
 
+def _examiner_can_access_session(db, examiner_id, session_id):
+    """Return True iff the examiner is assigned to the candidate for this session."""
+    exam_sess = db.exam_sessions.find_one({"_id": session_id})
+    if not exam_sess:
+        return False
+    assignment = db.examiner_assignments.find_one({
+        "examiner_id": examiner_id,
+        "candidate_id": exam_sess["candidate_id"],
+        "exam_id": exam_sess["exam_id"],
+    })
+    return assignment is not None
+
+
 @app.route('/examiner/dashboard')
 def examiner_dashboard():
     if session.get('role') != 'EXAMINER':
@@ -869,6 +943,9 @@ def get_student_answers(session_id):
 
     if session.get('role') != 'EXAMINER':
         return jsonify({"error": "unauthorized"}), 401
+
+    if not _examiner_can_access_session(db, session["user_id"], session_id):
+        return jsonify({"error": "you are not assigned to grade this student's exam"}), 403
 
     exam_sess = db.exam_sessions.find_one({"_id": session_id})
     if not exam_sess:
@@ -925,6 +1002,12 @@ def examiner_save_grade():
 
     answer_id = int(request.form['answer_id'])
     marks = int(request.form['marks'])
+
+    answer_doc = db.answers.find_one({"_id": answer_id})
+    if not answer_doc:
+        return jsonify({"error": "answer not found"}), 404
+    if not _examiner_can_access_session(db, session["user_id"], answer_doc["session_id"]):
+        return jsonify({"error": "you are not assigned to grade this student's exam"}), 403
 
     db.answers.update_one(
         {"_id": answer_id},
@@ -998,6 +1081,8 @@ def examiner_ai_grade():
 
     if not answer_doc:
         return jsonify({"error": "answer not found"}), 404
+    if not _examiner_can_access_session(db, session["user_id"], answer_doc["session_id"]):
+        return jsonify({"error": "you are not assigned to grade this student's exam"}), 403
 
     # Decrypt the answer to score it
     exam_sess = db.exam_sessions.find_one({"_id": answer_doc["session_id"]})
@@ -1038,6 +1123,9 @@ def examiner_get_result(session_id):
 
     if session.get('role') != 'EXAMINER':
         return jsonify({"error": "unauthorized"}), 401
+
+    if not _examiner_can_access_session(db, session["user_id"], session_id):
+        return jsonify({"error": "you are not assigned to grade this student's exam"}), 403
 
     answers = list(db.answers.find({"session_id": session_id}))
     total = sum(a.get("marks", 0) or 0 for a in answers)

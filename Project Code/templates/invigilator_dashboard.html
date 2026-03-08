@@ -249,5 +249,14 @@ Click on a session to evaluate answers
 
 </div>
 
+<script>
+(function() {
+  setInterval(function() {
+    fetch('/api/session_check', { credentials: 'same-origin' })
+      .then(function(r) { if (r.status === 401) window.location.href = '/login'; })
+      .catch(function() {});
+  }, 2500);
+})();
+</script>
 </body>
 </html>
