@@ -19,6 +19,7 @@ with app.app_context():
     db.users.create_index("username", unique=True)
     db.users.create_index("email", unique=True)
     db.candidates.create_index("registration_no", unique=True)
+    # -----------------------------
 
     # -----------------------------
     # INVIGILATOR USER
