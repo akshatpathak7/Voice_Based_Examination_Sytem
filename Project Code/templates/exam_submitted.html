@@ -6,16 +6,16 @@
     <title>Exam Submitted</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body class="auth-body">
 
-<div class="login-box" style="width: 460px;">
-    <div style="font-size: 3rem; margin-bottom: 12px;">&#10003;</div>
+<div class="login-box submitted-card">
+    <div class="status-symbol">&#10003;</div>
     <h2>Exam Submitted Successfully</h2>
-    <p style="margin: 16px 0; font-size: 15px; line-height: 1.6;">
+    <p class="lead-text">
         Your answers have been recorded and encrypted securely.
         They will be reviewed by your invigilator.
     </p>
-    <p style="font-size: 13px; color: #888; margin-bottom: 20px;">
+    <p class="subtle-text" style="margin-bottom: 18px;">
         You may now close this window or log out.
     </p>
     <a href="/candidate/logout">

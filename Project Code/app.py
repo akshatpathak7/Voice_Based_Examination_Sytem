@@ -2,7 +2,6 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 import math
 import os
 import re
-import secrets
 from datetime import datetime, timezone
 
 from models import init_app as init_db, get_db, get_next_id
@@ -122,34 +121,7 @@ def login():
 
     role = user["role"]
     accounts = session.get("accounts") or {}
-    existing = accounts.get(role)
-
-    # Only block when it's the SAME user (same user_id): same login, same role, valid session.
-    # Different user (different ID) same role => allow login and replace the account.
-    def _same_user_id(account, u):
-        if not account or not u:
-            return False
-        eid, uid = account.get("user_id"), u.get("_id")
-        if eid is None or uid is None:
-            return False
-        try:
-            return int(eid) == int(uid)
-        except (TypeError, ValueError):
-            return False
-
-    if (
-        existing is not None
-        and _same_user_id(existing, user)
-        and verify_session_for_role(role, existing)
-    ):
-        flash("You are already logged in as this user. Use your other tab or go to dashboard.", "already_logged_in")
-        return redirect(url_for("show_login"))
-
-    # New or replacing session: issue new token (invalidates any other device/tab with old token)
-    token = secrets.token_hex(32)
-    db.users.update_one({"_id": user["_id"]}, {"$set": {"session_token": token}})
-
-    accounts[role] = {"user_id": user["_id"], "session_token": token}
+    accounts[role] = {"user_id": user["_id"]}
     if role == "CANDIDATE":
         accounts[role]["exam_session_id"] = None  # set when they start exam
     session["accounts"] = accounts
@@ -203,30 +175,31 @@ def get_request_role():
     if path.startswith("/examiner"):
         return "EXAMINER"
     if path.startswith("/api/"):
+        if path == "/api/session_check":
+            role = (request.args.get("role") or "").strip().upper()
+            if role in {"ADMIN", "INVIGILATOR", "EXAMINER", "CANDIDATE"}:
+                return role
         return "CANDIDATE"
     return None
 
 
 def verify_session_for_role(role, account):
-    """Return True if this account's token matches the DB (single session per user per role)."""
+    """Return True if the account exists and still belongs to this role."""
     if not account:
         return False
     uid = account.get("user_id")
-    token = account.get("session_token")
-    if not uid or not token:
+    if uid is None:
         return False
     db = get_db()
     user = db.users.find_one({"_id": uid})
     if not user:
         return False
-    return user.get("session_token") == token
+    return user.get("role") == role
 
 
 @app.before_request
 def enforce_single_session():
-    """Validate the session for the current request's role. One login per user per role;
-    different roles (e.g. student + invigilator) can be logged in in different tabs.
-    """
+    """Validate local session for the current request's role."""
     role = get_request_role()
     if role is None:
         return None
@@ -241,7 +214,7 @@ def enforce_single_session():
     if not verify_session_for_role(role, account):
         accounts.pop(role, None)
         session["accounts"] = accounts
-        flash("Your session has been ended because this account was logged in on another device.")
+        flash("Your session is no longer valid. Please log in again.")
         if request.path.startswith("/api/") or "application/json" in request.headers.get("Accept", ""):
             return jsonify({"error": "session_expired"}), 401
         return redirect(url_for("show_login"))
@@ -390,6 +363,42 @@ def admin_create_user():
     return redirect(url_for('admin_dashboard'))
 
 
+def _delete_candidate_with_related(db, candidate):
+    """Delete candidate user/profile and all dependent records."""
+    if not candidate:
+        return None
+
+    user = db.users.find_one({"_id": candidate["reg_id"]})
+
+    db.examiner_assignments.delete_many({"candidate_id": candidate["_id"]})
+    db.exam_assignments.delete_many({"candidate_id": candidate["_id"]})
+
+    sessions = list(db.exam_sessions.find({"candidate_id": candidate["_id"]}, {"_id": 1}))
+    for sess in sessions:
+        db.answers.delete_many({"session_id": sess["_id"]})
+    db.exam_sessions.delete_many({"candidate_id": candidate["_id"]})
+
+    db.candidates.delete_one({"_id": candidate["_id"]})
+    if user:
+        db.users.delete_one({"_id": user["_id"]})
+
+    return user
+
+
+def _delete_exam_with_related(db, exam_id):
+    """Delete exam and all dependent records."""
+    sessions = list(db.exam_sessions.find({"exam_id": exam_id}, {"_id": 1}))
+    for sess in sessions:
+        db.answers.delete_many({"session_id": sess["_id"]})
+
+    db.exam_sessions.delete_many({"exam_id": exam_id})
+    db.questions.delete_many({"exam_id": exam_id})
+    db.exam_assignments.delete_many({"exam_id": exam_id})
+    db.examiner_assignments.delete_many({"exam_id": exam_id})
+
+    return db.exams.delete_one({"_id": exam_id})
+
+
 # ---------- ADMIN: DELETE STUDENT ----------
 
 @app.route('/admin/delete_student/<int:user_id>', methods=['POST'])
@@ -404,20 +413,11 @@ def admin_delete_student(user_id):
         flash("Student not found.")
         return redirect(url_for('admin_dashboard'))
 
-    # Cascade: candidate profile, assignments, sessions, answers
     candidate = db.candidates.find_one({"reg_id": user_id})
     if candidate:
-        # Remove examiner assignments for this candidate
-        db.examiner_assignments.delete_many({"candidate_id": candidate["_id"]})
-        # Remove exam sessions and their answers
-        sessions = list(db.exam_sessions.find({"candidate_id": candidate["_id"]}))
-        for sess in sessions:
-            db.answers.delete_many({"session_id": sess["_id"]})
-        db.exam_sessions.delete_many({"candidate_id": candidate["_id"]})
-        # Remove candidate profile
-        db.candidates.delete_one({"_id": candidate["_id"]})
-
-    db.users.delete_one({"_id": user_id})
+        _delete_candidate_with_related(db, candidate)
+    else:
+        db.users.delete_one({"_id": user_id})
     flash(f"Student '{user['full_name']}' deleted successfully.")
     return redirect(url_for('admin_dashboard'))
 
@@ -548,6 +548,23 @@ def create_student():
     return redirect(request.referrer or url_for('invigilator_dashboard'))
 
 
+@app.route('/invigilator/delete_student/<int:candidate_id>', methods=['POST'])
+def invigilator_delete_student(candidate_id):
+    db = get_db()
+    if g.current_role != 'INVIGILATOR':
+        return redirect(url_for('show_login'))
+
+    candidate = db.candidates.find_one({"_id": candidate_id})
+    if not candidate:
+        flash("Student not found.")
+        return redirect(url_for('invigilator_dashboard'))
+
+    user = _delete_candidate_with_related(db, candidate)
+    display_name = user["full_name"] if user else candidate.get("registration_no", "Student")
+    flash(f"Student '{display_name}' deleted successfully.")
+    return redirect(url_for('invigilator_dashboard'))
+
+
 # ---------- INVIGILATOR: ASSIGN STUDENT TO EXAM ----------
 
 @app.route('/invigilator/assign_student_exam', methods=['POST'])
@@ -675,6 +692,22 @@ def create_exam():
     return redirect(url_for('invigilator_dashboard'))
 
 
+@app.route('/invigilator/delete_exam/<int:exam_id>', methods=['POST'])
+def invigilator_delete_exam(exam_id):
+    db = get_db()
+    if g.current_role != 'INVIGILATOR':
+        return redirect(url_for('show_login'))
+
+    exam = db.exams.find_one({"_id": exam_id})
+    if not exam:
+        flash("Exam not found.")
+        return redirect(url_for('invigilator_dashboard'))
+
+    _delete_exam_with_related(db, exam_id)
+    flash(f"Exam '{exam.get('exam_name', exam_id)}' deleted successfully.")
+    return redirect(url_for('invigilator_dashboard'))
+
+
 # ---------- START EXAM (invigilator starts for all assigned students) ----------
 
 def _get_active_exam(db):
@@ -683,6 +716,46 @@ def _get_active_exam(db):
     if exam:
         return exam
     return db.exams.find_one()
+
+
+def _ensure_examiner_assignment(db, candidate_id, exam_id):
+    """Ensure every candidate+exam pair has an examiner assignment.
+
+    Strategy:
+      1) Keep existing exact assignment if present.
+      2) Reuse candidate's existing examiner (from any prior exam).
+      3) Else assign to the first available EXAMINER user.
+    """
+    existing = db.examiner_assignments.find_one({
+        "candidate_id": candidate_id,
+        "exam_id": exam_id,
+    })
+    if existing:
+        return existing
+
+    prior = db.examiner_assignments.find_one(
+        {"candidate_id": candidate_id},
+        sort=[("_id", 1)],
+    )
+    examiner_id = prior.get("examiner_id") if prior else None
+
+    if examiner_id is None:
+        examiner_user = db.users.find_one({"role": "EXAMINER"}, sort=[("_id", 1)])
+        if not examiner_user:
+            return None
+        examiner_id = examiner_user["_id"]
+
+    assign_id = get_next_id("examiner_assignments")
+    assignment = {
+        "_id": assign_id,
+        "examiner_id": examiner_id,
+        "candidate_id": candidate_id,
+        "exam_id": exam_id,
+        "auto_assigned": True,
+        "created_at": datetime.now(timezone.utc),
+    }
+    db.examiner_assignments.insert_one(assignment)
+    return assignment
 
 
 @app.route('/invigilator/start_exam/<int:exam_id>')
@@ -710,6 +783,8 @@ def start_exam_invigilator(exam_id):
 
     created = 0
     for cid in candidate_ids:
+        _ensure_examiner_assignment(db, cid, exam_id)
+
         # Only create if they don't already have a non-submitted session for this exam
         existing = db.exam_sessions.find_one({
             "candidate_id": cid,
@@ -889,7 +964,7 @@ def get_result(session_id):
 
 @app.route('/api/session_check')
 def session_check():
-    """Lightweight check for single-session: if session invalid (e.g. logged in elsewhere), before_request returns 401."""
+    """Lightweight check endpoint; returns 401 only if the current role session is missing/invalid."""
     return jsonify({"ok": True})
 
 
@@ -930,7 +1005,15 @@ def save_answer():
     )
 
     exam_sess = db.exam_sessions.find_one({"_id": session_id})
+    if not exam_sess:
+        return jsonify({"error": "session not found"}), 400
+
     exam = db.exams.find_one({"_id": exam_sess["exam_id"]})
+    if not exam:
+        return jsonify({"error": "exam not found"}), 400
+
+    _ensure_examiner_assignment(db, exam_sess["candidate_id"], exam_sess["exam_id"])
+
     exam_key = decrypt_exam_key(
         bytes(exam["enc_key_ciphertext"]),
         bytes(exam["enc_key_iv"]),
@@ -1006,7 +1089,15 @@ def start_exam():
             "error": "You cannot start the exam yet. The invigilator must assign you to an exam and then start it. Wait for the invigilator to start the exam.",
         }), 403
 
-    session.setdefault("accounts", {}).setdefault("CANDIDATE", {})["exam_session_id"] = existing["_id"]
+    _ensure_examiner_assignment(db, candidate["_id"], exam["_id"])
+
+    accounts = session.get("accounts") or {}
+    candidate_account = accounts.get("CANDIDATE") or {}
+    candidate_account["user_id"] = g.current_user_id
+    candidate_account["exam_session_id"] = existing["_id"]
+    accounts["CANDIDATE"] = candidate_account
+    session["accounts"] = accounts
+
     return jsonify({
         "session_id": existing["_id"],
         "duration_minutes": exam["duration"],
@@ -1033,6 +1124,11 @@ def _examiner_can_access_session(db, examiner_id, session_id):
         "exam_id": exam_sess["exam_id"],
     })
     return assignment is not None
+
+
+def _delete_exam_session_with_answers(db, session_id):
+    db.answers.delete_many({"session_id": session_id})
+    db.exam_sessions.delete_one({"_id": session_id})
 
 
 @app.route('/examiner/dashboard')
@@ -1070,6 +1166,22 @@ def examiner_dashboard():
         })
 
     return render_template('examiner_dashboard.html', students=students)
+
+
+@app.route('/examiner/delete_session/<int:session_id>', methods=['POST'])
+def examiner_delete_session(session_id):
+    db = get_db()
+
+    if g.current_role != 'EXAMINER':
+        return redirect(url_for('show_login'))
+
+    if not _examiner_can_access_session(db, g.current_user_id, session_id):
+        flash("You are not assigned to delete this exam session.")
+        return redirect(url_for('examiner_dashboard'))
+
+    _delete_exam_session_with_answers(db, session_id)
+    flash(f"Exam session #{session_id} deleted.")
+    return redirect(url_for('examiner_dashboard'))
 
 
 @app.route('/examiner/get_student_answers/<int:session_id>')
@@ -1307,4 +1419,4 @@ def logout():
 
 # ---------- RUN APPLICATION ----------
 if __name__ == '__main__':
-    app.run(debug=True, port=5002)
+    app.run(debug=True, port=5005)

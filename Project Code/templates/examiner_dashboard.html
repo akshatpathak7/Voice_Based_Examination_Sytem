@@ -1,314 +1,24 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Examiner Dashboard</title>
-<script src="{{ url_for('static', filename='examiner.js') }}"></script>
-<style>
-
-/* Global Theme */
-body {
-    margin: 0;
-    font-family: 'Segoe UI', Arial;
-    background: #f0f4f8;
-}
-
-/* Header */
-.header {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: white;
-    padding: 15px 30px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 2px 12px rgba(99,102,241,0.3);
-}
-
-.header h2 {
-    margin: 0;
-    font-size: 22px;
-    letter-spacing: 0.5px;
-}
-
-.logout {
-    background: #dc2626;
-    color: white;
-    padding: 8px 18px;
-    text-decoration: none;
-    border-radius: 6px;
-    font-weight: 600;
-    transition: background 0.2s;
-}
-
-.logout:hover {
-    background: #b91c1c;
-}
-
-/* Container */
-.container {
-    width: 92%;
-    max-width: 1200px;
-    margin: auto;
-    margin-top: 20px;
-    padding-bottom: 40px;
-}
-
-/* Card Layout */
-.card {
-    background: white;
-    padding: 24px;
-    border-radius: 12px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-    transition: box-shadow 0.2s;
-}
-
-.card:hover {
-    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
-}
-
-/* Section Title */
-.section-title {
-    font-size: 18px;
-    font-weight: 700;
-    margin-bottom: 12px;
-    color: #6366f1;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-/* Buttons */
-.btn {
-    padding: 8px 16px;
-    margin: 4px;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    color: white;
-    background: #6366f1;
-    font-weight: 600;
-    font-size: 13px;
-    transition: all 0.2s;
-}
-
-.btn:hover {
-    background: #4f46e5;
-    transform: translateY(-1px);
-}
-
-.btn-danger {
-    background: #dc2626;
-}
-
-.btn-danger:hover {
-    background: #b91c1c;
-}
-
-.btn-success {
-    background: #16a34a;
-}
-
-.btn-success:hover {
-    background: #15803d;
-}
-
-.btn-ai {
-    background: linear-gradient(135deg, #f59e0b, #f97316);
-    position: relative;
-    overflow: hidden;
-}
-
-.btn-ai:hover {
-    background: linear-gradient(135deg, #d97706, #ea580c);
-}
-
-.btn-ai::before {
-    content: '✨';
-    margin-right: 4px;
-}
-
-/* Student Item */
-.student-item {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    padding: 16px;
-    margin: 10px 0;
-    border-radius: 10px;
-    transition: border-color 0.2s;
-}
-
-.student-item:hover {
-    border-color: #6366f1;
-}
-
-.student-info {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.student-name {
-    font-weight: 700;
-    font-size: 16px;
-    color: #1e293b;
-}
-
-.student-meta {
-    color: #64748b;
-    font-size: 13px;
-}
-
-/* Session List */
-.session-list {
-    margin-top: 10px;
-    padding-left: 16px;
-    border-left: 3px solid #6366f1;
-}
-
-.session-item {
-    padding: 8px 12px;
-    margin: 6px 0;
-    background: white;
-    border-radius: 6px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-}
-
-/* Answer Card */
-.answer-card {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 18px;
-    margin: 12px 0;
-    position: relative;
-}
-
-.answer-card.tampered {
-    border-color: #dc2626;
-    background: #fef2f2;
-}
-
-.question-text {
-    font-weight: 700;
-    color: #1e293b;
-    margin-bottom: 8px;
-    font-size: 15px;
-}
-
-.answer-text {
-    background: white;
-    padding: 12px;
-    border-radius: 6px;
-    border: 1px solid #e2e8f0;
-    margin: 8px 0;
-    line-height: 1.6;
-    color: #334155;
-}
-
-.grading-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 10px;
-    flex-wrap: wrap;
-}
-
-.grading-row input {
-    width: 70px;
-    padding: 6px 10px;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    font-size: 14px;
-    text-align: center;
-}
-
-.grading-row label {
-    font-weight: 600;
-    color: #475569;
-    font-size: 14px;
-}
-
-.badge {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.badge-manual {
-    background: #dbeafe;
-    color: #1d4ed8;
-}
-
-.badge-ai {
-    background: #fef3c7;
-    color: #b45309;
-}
-
-.badge-tampered {
-    background: #fecaca;
-    color: #dc2626;
-}
-
-/* Result Box */
-.result-box {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: white;
-    padding: 16px 24px;
-    border-radius: 10px;
-    font-size: 18px;
-    font-weight: 700;
-    text-align: center;
-    margin-top: 12px;
-    display: none;
-}
-
-/* Empty State */
-.empty-state {
-    text-align: center;
-    color: #94a3b8;
-    padding: 30px;
-    font-size: 15px;
-}
-
-.empty-state .icon {
-    font-size: 40px;
-    margin-bottom: 10px;
-}
-
-/* Form */
-input {
-    padding: 8px;
-    margin: 4px;
-    border-radius: 5px;
-    border: 1px solid #ccc;
-}
-
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<script src="{{ url_for('static', filename='examiner.js') }}" defer></script>
 </head>
-
 <body>
 
-<!-- HEADER -->
 <div class="header">
-    <h2>📝 Examiner Dashboard</h2>
+    <h2>Examiner Dashboard</h2>
     <a class="logout" href="/examiner/logout">Logout</a>
 </div>
 
 <div class="container">
 
-<!-- FLASH MESSAGES -->
 {% with messages = get_flashed_messages() %}
 {% if messages %}
-<div class="card" style="border-left: 4px solid #6366f1; background: #eef2ff;">
+<div class="card flash-box">
     {% for msg in messages %}
     <p style="margin: 4px 0;">{{ msg }}</p>
     {% endfor %}
@@ -316,14 +26,13 @@ input {
 {% endif %}
 {% endwith %}
 
-<!-- ASSIGNED STUDENTS -->
 <div class="card">
-    <div class="section-title">👥 Assigned Students</div>
+    <div class="section-title">Assigned Students</div>
 
     {% if students|length == 0 %}
     <div class="empty-state">
-        <div class="icon">📭</div>
-        <p>No students have been assigned to you yet.</p>
+        <div class="icon">[ ]</div>
+        <p>No students have been assigned yet.</p>
     </div>
     {% endif %}
 
@@ -333,8 +42,7 @@ input {
             <div>
                 <div class="student-name">{{ s.full_name }}</div>
                 <div class="student-meta">
-                    Reg. No: {{ s.registration_no }} &bull;
-                    Exam: {{ s.exam_name }}
+                    Reg. No: {{ s.registration_no }} &bull; Exam: {{ s.exam_name }}
                 </div>
             </div>
         </div>
@@ -344,14 +52,14 @@ input {
             {% for sess in s.sessions %}
             <div class="session-item">
                 <span>
-                    Session #{{ sess._id }}
-                    &mdash; Status: <strong>{{ sess.status }}</strong>
+                    Session #{{ sess._id }} | Status: <strong>{{ sess.status }}</strong>
                 </span>
                 <div>
-                    <button class="btn"
-                        onclick="loadStudentAnswers({{ sess._id }})">
-                        📋 Review Answers
-                    </button>
+                    <button class="btn" onclick="loadStudentAnswers({{ sess._id }})">Review Answers</button>
+                    <form action="/examiner/delete_session/{{ sess._id }}" method="post" style="display:inline;"
+                          onsubmit="return confirm('Delete this exam session and all its answers?');">
+                        <button type="submit" class="btn btn-danger">Delete Exam</button>
+                    </form>
                 </div>
             </div>
             {% endfor %}
@@ -363,12 +71,11 @@ input {
     {% endfor %}
 </div>
 
-<!-- ANSWER REVIEW & GRADING AREA -->
 <div class="card" id="answerArea">
-    <div class="section-title">📋 Answer Review & Grading</div>
+    <div class="section-title">Answer Review and Grading</div>
     <div class="empty-state">
-        <div class="icon">📝</div>
-        <p>Select a student's session above to review and grade their answers.</p>
+        <div class="icon">[ ]</div>
+        <p>Select a student's session above to review and grade answers.</p>
     </div>
 </div>
 
@@ -377,7 +84,7 @@ input {
 <script>
 (function() {
   setInterval(function() {
-    fetch('/api/session_check', { credentials: 'same-origin' })
+    fetch('/api/session_check?role=EXAMINER', { credentials: 'same-origin' })
       .then(function(r) { if (r.status === 401) window.location.href = '/login'; })
       .catch(function() {});
   }, 2500);

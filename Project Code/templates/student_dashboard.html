@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Exam — Student Dashboard</title>
+    <title>Voice Exam - Student Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body class="exam-body">
@@ -59,15 +59,15 @@
             <div class="command-help">
                 <h3>Voice Commands</h3>
                 <ul>
-                    <li><strong>"Next question"</strong> — move to the next question</li>
-                    <li><strong>"Skip question"</strong> — skip and come back later</li>
-                    <li><strong>"Go to question 3"</strong> — jump to any question by number</li>
-                    <li><strong>"Repeat question"</strong> — hear the question again</li>
-                    <li><strong>"Read my answer"</strong> — hear your recorded answer</li>
-                    <li><strong>"Clear answer"</strong> — delete your answer and redo it</li>
-                    <li><strong>"Time left"</strong> — hear remaining time</li>
-                    <li><strong>"Submit exam"</strong> — finish and submit</li>
-                    <li><strong>"Help me"</strong> — hear all commands</li>
+                    <li><strong>"Next question"</strong> -> move to the next question</li>
+                    <li><strong>"Skip question"</strong> -> skip and come back later</li>
+                    <li><strong>"Go to question 3"</strong> -> jump to any question by number</li>
+                    <li><strong>"Repeat question"</strong> -> hear the question again</li>
+                    <li><strong>"Read my answer"</strong> -> hear your recorded answer</li>
+                    <li><strong>"Clear answer"</strong> -> delete your answer and redo it</li>
+                    <li><strong>"Time left"</strong> -> hear remaining time</li>
+                    <li><strong>"Submit exam"</strong> -> finish and submit</li>
+                    <li><strong>"Help me"</strong> -> hear all commands</li>
                 </ul>
             </div>
         </aside>
@@ -81,7 +81,7 @@
 (function() {
   // Session check: redirect to login if logged out elsewhere
   setInterval(function() {
-    fetch('/api/session_check', { credentials: 'same-origin' })
+    fetch('/api/session_check?role=CANDIDATE', { credentials: 'same-origin' })
       .then(function(r) { if (r.status === 401) window.location.href = '/login'; })
       .catch(function() {});
   }, 2500);

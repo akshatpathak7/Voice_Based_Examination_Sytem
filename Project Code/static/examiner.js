@@ -15,9 +15,9 @@ function loadStudentAnswers(sessionId) {
 
         if (data.error) {
             div.innerHTML = `
-                <div class="section-title">📋 Answer Review & Grading</div>
+                <div class="section-title">Answer Review and Grading</div>
                 <div class="empty-state">
-                    <div class="icon">⚠️</div>
+                    <div class="icon">[!]</div>
                     <p>${data.error}</p>
                 </div>`;
             return;
@@ -25,15 +25,15 @@ function loadStudentAnswers(sessionId) {
 
         if (data.length === 0) {
             div.innerHTML = `
-                <div class="section-title">📋 Answer Review & Grading</div>
+                <div class="section-title">Answer Review and Grading</div>
                 <div class="empty-state">
-                    <div class="icon">📭</div>
+                    <div class="icon">[ ]</div>
                     <p>No answers submitted for this session yet.</p>
                 </div>`;
             return;
         }
 
-        let html = `<div class="section-title">📋 Answer Review & Grading — Session #${sessionId}</div>`;
+        let html = `<div class="section-title">Answer Review and Grading | Session #${sessionId}</div>`;
 
         // Grade All with AI button
         html += `
@@ -42,14 +42,14 @@ function loadStudentAnswers(sessionId) {
                     Grade All with AI
                 </button>
                 <button class="btn btn-success" onclick="viewStudentResult(${sessionId})">
-                    📊 View Total Result
+                    View Total Result
                 </button>
             </div>`;
 
         data.forEach((a, idx) => {
             let tamperedClass = a.tampered ? 'tampered' : '';
             let tamperedBadge = a.tampered
-                ? '<span class="badge badge-tampered">⚠ Tampered</span>'
+                ? '<span class="badge badge-tampered">[!] Tampered</span>'
                 : '';
 
             let methodBadge = '';
@@ -76,11 +76,11 @@ function loadStudentAnswers(sessionId) {
                     <label>Marks (0-10):</label>
                     <input type="number" id="grade_${a.answer_id}"
                            value="${currentMarks}" min="0" max="10"
-                           placeholder="—">
+                           placeholder="--">
 
                     <button class="btn"
                             onclick="saveGrade(${a.answer_id})">
-                        💾 Save
+                        Save
                     </button>
 
                     <button class="btn btn-ai"
@@ -213,7 +213,7 @@ function viewStudentResult(sessionId) {
     .then(data => {
         let box = document.getElementById("resultBox");
         if (box) {
-            box.textContent = '🏆 Total Marks: ' + data.total_marks;
+            box.textContent = 'Total Marks: ' + data.total_marks;
             box.style.display = 'block';
             box.scrollIntoView({ behavior: 'smooth' });
         } else {

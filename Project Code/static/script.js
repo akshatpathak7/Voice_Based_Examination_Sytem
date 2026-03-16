@@ -23,25 +23,28 @@ function loadQuestions(exam_id) {
         .then(function (data) {
             let div = document.getElementById("questionArea");
             if (!Array.isArray(data)) {
-                div.innerHTML = "<h3>Manage Questions</h3><p class='error'>Unexpected response. Please try again.</p>";
+                div.innerHTML = "<div class='section-title'>Question Management</div><p class='error'>Unexpected response. Please try again.</p>";
                 return;
             }
-            div.innerHTML = "<h3>Manage Questions</h3>";
+            div.innerHTML = "<div class='section-title'>Question Management</div>";
             data.forEach(function (q) {
                 var safeText = escapeAttr(q.text);
                 div.innerHTML +=
-                    "<div class='item'>" +
-                    "<input id='q" + q.id + "' value=\"" + safeText + "\" size='60'>" +
+                    "<div class='item flex'>" +
+                    "<input id='q" + q.id + "' value=\"" + safeText + "\" style='flex:1; min-width:220px;'>" +
                     "<button class='btn' onclick='updateQuestion(" + q.id + ")'>Update</button>" +
-                    "<button class='btn danger' onclick='deleteQuestion(" + q.id + ")'>Delete</button>" +
+                    "<button class='btn btn-danger' onclick='deleteQuestion(" + q.id + ")'>Delete</button>" +
                     "</div>";
             });
-            div.innerHTML += "<br><input id='newq' placeholder='New Question' size='60'>" +
-                "<button class='btn' onclick='addQuestion(" + exam_id + ")'>Add Question</button>";
+            div.innerHTML +=
+                "<div class='item flex'>" +
+                "<input id='newq' placeholder='New question' style='flex:1; min-width:220px;'>" +
+                "<button class='btn' onclick='addQuestion(" + exam_id + ")'>Add Question</button>" +
+                "</div>";
         })
         .catch(function (err) {
             let div = document.getElementById("questionArea");
-            div.innerHTML = "<h3>Manage Questions</h3><p class='error'>" + escapeAttr(err.message) + "</p>";
+            div.innerHTML = "<div class='section-title'>Question Management</div><p class='error'>" + escapeAttr(err.message) + "</p>";
         });
 }
 
@@ -101,7 +104,12 @@ function viewAnswers(session_id) {
 
             let div = document.getElementById("answerArea");
 
-            div.innerHTML = "<h3>Evaluate Answers</h3>";
+            div.innerHTML = "<div class='section-title'>Answer Evaluation</div>";
+
+            if (!Array.isArray(data) || data.length === 0) {
+                div.innerHTML += "<div class='empty-state'>No answers submitted for this session yet.</div>";
+                return;
+            }
 
             data.forEach(a => {
 
@@ -116,7 +124,7 @@ function viewAnswers(session_id) {
             <input id='m${a.answer_id}' value='${a.marks || 0}' size='5'>
 
             <button class="btn" onclick='saveMarks(${a.answer_id})'>
-            Save Marks
+            Save
             </button>
 
             </div>

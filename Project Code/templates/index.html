@@ -3,31 +3,30 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Voice Examination System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Examination Portal</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 
-<body>
+<body class="auth-body">
 
     <div class="login-box">
-        <h2>🎙 Voice-Based Examination System</h2>
+        <h2>Voice Examination Portal</h2>
 
-        <p style="margin-bottom: 20px;">
+        <p class="lead-text">
             An accessible and voice-driven examination platform designed for
             visually challenged students.
         </p>
 
-        <ul style="text-align:left; font-size:14px; color:#444;">
-            <li>✔ Fully voice-controlled exams</li>
-            <li>✔ Speech-to-Text & Text-to-Speech</li>
-            <li>✔ Role-based access (Student, Invigilator, Examiner, Admin)</li>
-            <li>✔ Secure & accessible design</li>
+        <ul class="feature-list">
+            <li>Fully voice-controlled exam flow</li>
+            <li>Speech-to-text and text-to-speech support</li>
+            <li>Role-based access for all exam stakeholders</li>
+            <li>Secure and accessibility-first experience</li>
         </ul>
 
-        <br>
-
         <a href="/login">
-            <button>Proceed to Login</button>
+            <button>Open Login</button>
         </a>
     </div>
 

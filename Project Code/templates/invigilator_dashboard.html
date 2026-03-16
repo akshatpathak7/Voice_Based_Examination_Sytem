@@ -1,119 +1,14 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Invigilator Dashboard</title>
-
-<script src="{{ url_for('static', filename='script.js') }}"></script>
-
-<style>
-
-/* Global Theme */
-body {
-    margin: 0;
-    font-family: 'Segoe UI', Arial;
-    background: #f0f4f8;
-}
-
-/* Header */
-.header {
-    background: #1e3a8a;
-    color: white;
-    padding: 15px 30px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.header h2 {
-    margin: 0;
-}
-
-.logout {
-    background: #dc2626;
-    color: white;
-    padding: 8px 14px;
-    text-decoration: none;
-    border-radius: 6px;
-}
-
-/* Container */
-.container {
-    width: 92%;
-    margin: auto;
-    margin-top: 20px;
-}
-
-/* Card Layout */
-.card {
-    background: white;
-    padding: 20px;
-    border-radius: 10px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-
-/* Sections */
-.section-title {
-    font-size: 18px;
-    font-weight: bold;
-    margin-bottom: 10px;
-    color: #1e3a8a;
-}
-
-/* Buttons */
-.btn {
-    padding: 8px 14px;
-    margin: 5px;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    color: white;
-    background: #2563eb;
-}
-
-.btn:hover {
-    background: #1d4ed8;
-}
-
-.btn-danger {
-    background: #dc2626;
-}
-
-.btn-success {
-    background: #16a34a;
-}
-
-/* Form */
-input {
-    padding: 8px;
-    margin: 5px;
-    border-radius: 5px;
-    border: 1px solid #ccc;
-}
-
-/* Item Card */
-.item {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    padding: 12px;
-    margin: 10px 0;
-    border-radius: 8px;
-}
-
-/* Flex Row */
-.flex {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-</style>
-
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<script src="{{ url_for('static', filename='script.js') }}" defer></script>
 </head>
-
 <body>
 
-<!-- HEADER -->
 <div class="header">
     <h2>Invigilator Control Panel</h2>
     <a class="logout" href="/invigilator/logout">Logout</a>
@@ -121,10 +16,9 @@ input {
 
 <div class="container">
 
-<!-- FLASH MESSAGES -->
 {% with messages = get_flashed_messages() %}
 {% if messages %}
-<div class="card" style="border-left: 4px solid #2563eb; background: #eff6ff;">
+<div class="card flash-box">
     {% for msg in messages %}
     <p style="margin: 4px 0;">{{ msg }}</p>
     {% endfor %}
@@ -132,152 +26,137 @@ input {
 {% endif %}
 {% endwith %}
 
-<!-- CREATE STUDENT -->
 <div class="card">
+    <div class="section-title">Create Student Account</div>
 
-<div class="section-title">Create Student Account</div>
-
-<form action="/invigilator/create_student" method="post" style="display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end;">
-    <input type="text" name="full_name" placeholder="Full Name *" required>
-    <input type="text" name="username" placeholder="Username *" required>
-    <input type="email" name="email" placeholder="Email *" required>
-    <input type="password" name="password" placeholder="Password *" required>
-    <input type="text" name="registration_no" placeholder="Registration No. *" required>
-    <input type="text" name="phone_no" placeholder="Phone (optional)">
-    <button class="btn btn-success">Create Student</button>
-</form>
-
-</div>
-
-<!-- ASSIGN STUDENT TO EXAM -->
-<div class="card">
-<div class="section-title">Assign student to exam</div>
-<form action="/invigilator/assign_student_exam" method="post" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
-    <select name="candidate_id" required style="min-width: 180px;">
-        <option value="">Select student</option>
-        {% for c in candidates %}
-        <option value="{{ c._id }}">{{ c.full_name }} ({{ c.registration_no }})</option>
-        {% endfor %}
-    </select>
-    <select name="exam_id" required style="min-width: 220px;">
-        <option value="">Select exam</option>
-        {% for e in exams %}
-        <option value="{{ e._id }}">{{ e.exam_name }}</option>
-        {% endfor %}
-    </select>
-    <button type="submit" class="btn btn-success">Assign</button>
-</form>
-{% if exam_assignments|length > 0 %}
-<p style="margin-top: 12px; margin-bottom: 6px;"><strong>Current assignments (invigilator):</strong></p>
-<ul style="margin: 0; padding-left: 20px;">
-{% for a in exam_assignments %}
-<li style="margin: 4px 0;">
-    {{ a.candidate_name }} → {{ a.exam_name }}
-    <form action="/invigilator/unassign_student_exam/{{ a._id }}" method="post" style="display: inline; margin-left: 8px;">
-        <button type="submit" class="btn btn-danger" style="padding: 2px 8px; font-size: 12px;">Remove</button>
+    <form action="/invigilator/create_student" method="post" class="form-row">
+        <input type="text" name="full_name" placeholder="Full Name *" required>
+        <input type="text" name="username" placeholder="Username *" required>
+        <input type="email" name="email" placeholder="Email *" required>
+        <input type="password" name="password" placeholder="Password *" required>
+        <input type="text" name="registration_no" placeholder="Registration No. *" required>
+        <input type="text" name="phone_no" placeholder="Phone (optional)">
+        <button class="btn btn-success">Create Student</button>
     </form>
-</li>
-{% endfor %}
-</ul>
-{% endif %}
 </div>
 
-<!-- CREATE EXAM -->
 <div class="card">
+    <div class="section-title">Students</div>
 
-<div class="section-title">Create New Exam</div>
+    {% if candidates|length == 0 %}
+    <div class="empty-state">No students found.</div>
+    {% endif %}
 
-<form action="/invigilator/create_exam" method="post">
-
-<input type="text" name="name" placeholder="Exam Name" required>
-
-<input type="number" name="duration" placeholder="Duration (minutes)" required>
-
-<button class="btn btn-success">Create Exam</button>
-
-</form>
-
+    {% for c in candidates %}
+    <div class="item flex">
+        <div>
+            <strong>{{ c.full_name }}</strong>
+            <span style="color:#64748b;"> | Reg. No: {{ c.registration_no }}</span>
+        </div>
+        <form action="/invigilator/delete_student/{{ c._id }}" method="post"
+              onsubmit="return confirm('Delete this student and all related exam data?');">
+            <button type="submit" class="btn btn-danger">Delete Student</button>
+        </form>
+    </div>
+    {% endfor %}
 </div>
 
-<!-- EXAM LIST -->
 <div class="card">
+    <div class="section-title">Assign Student to Exam</div>
+    <form action="/invigilator/assign_student_exam" method="post" class="form-row">
+        <select name="candidate_id" required style="min-width: 220px;">
+            <option value="">Select student</option>
+            {% for c in candidates %}
+            <option value="{{ c._id }}">{{ c.full_name }} ({{ c.registration_no }})</option>
+            {% endfor %}
+        </select>
+        <select name="exam_id" required style="min-width: 240px;">
+            <option value="">Select exam</option>
+            {% for e in exams %}
+            <option value="{{ e._id }}">{{ e.exam_name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-success">Assign</button>
+    </form>
 
-<div class="section-title">Available Exams</div>
-
-{% if exams|length == 0 %}
-<p>No exams created yet.</p>
-{% endif %}
-
-{% for e in exams %}
-
-<div class="item flex">
-
-<div>
-<b>{{ e.exam_name }}</b>
+    {% if exam_assignments|length > 0 %}
+    <hr class="section-divider">
+    <div class="subsection-title">Current Assignments</div>
+    <ul style="margin: 0; padding-left: 18px;">
+    {% for a in exam_assignments %}
+    <li style="margin: 6px 0;">
+        {{ a.candidate_name }} &rarr; {{ a.exam_name }}
+        <form action="/invigilator/unassign_student_exam/{{ a._id }}" method="post" style="display: inline; margin-left: 8px;">
+            <button type="submit" class="btn btn-danger" style="padding: 2px 8px; font-size: 12px;">Remove</button>
+        </form>
+    </li>
+    {% endfor %}
+    </ul>
+    {% endif %}
 </div>
 
-<div>
-<button class="btn"
-onclick="loadQuestions({{ e._id }})">
-Manage Questions
-</button>
+<div class="card">
+    <div class="section-title">Create New Exam</div>
 
-<a href="/invigilator/start_exam/{{ e._id }}">
-<button class="btn btn-success">Start Exam</button>
-</a>
+    <form action="/invigilator/create_exam" method="post" class="form-row">
+        <input type="text" name="name" placeholder="Exam Name" required>
+        <input type="number" name="duration" placeholder="Duration (minutes)" required>
+        <button class="btn btn-success">Create Exam</button>
+    </form>
 </div>
 
+<div class="card">
+    <div class="section-title">Available Exams</div>
+
+    {% if exams|length == 0 %}
+    <div class="empty-state">No exams created yet.</div>
+    {% endif %}
+
+    {% for e in exams %}
+    <div class="item flex">
+        <div><strong>{{ e.exam_name }}</strong></div>
+        <div>
+            <button class="btn" onclick="loadQuestions({{ e._id }})">Manage Questions</button>
+            <a href="/invigilator/start_exam/{{ e._id }}">
+                <button class="btn btn-success">Start Exam</button>
+            </a>
+            <form action="/invigilator/delete_exam/{{ e._id }}" method="post" style="display:inline;"
+                  onsubmit="return confirm('Delete this exam with its questions, sessions, answers, and assignments?');">
+                <button type="submit" class="btn btn-danger">Delete Exam</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
 </div>
 
-{% endfor %}
-
-</div>
-
-<!-- QUESTION MANAGEMENT -->
 <div class="card" id="questionArea">
-<div class="section-title">
-Select an exam to manage questions
-</div>
+    <div class="section-title">Question Management</div>
+    <p style="color: #64748b; margin: 0;">Select an exam to manage questions.</p>
 </div>
 
-<!-- SESSIONS -->
 <div class="card">
+    <div class="section-title">Exam Sessions</div>
 
-<div class="section-title">Exam Sessions</div>
+    {% if sessions|length == 0 %}
+    <div class="empty-state">No exam sessions yet.</div>
+    {% endif %}
 
-{% if sessions|length == 0 %}
-<p>No exam sessions yet.</p>
-{% endif %}
+    {% for s in sessions %}
+    <div class="item flex">
+        <div>
+            Session {{ s._id }} | Candidate {{ s.candidate_id }}
+        </div>
 
-{% for s in sessions %}
-
-<div class="item flex">
-
-<div>
-Session {{ s._id }} –
-Candidate {{ s.candidate_id }}
+        <div>
+            <button class="btn" onclick="viewAnswers({{ s._id }})">Evaluate Answers</button>
+        </div>
+    </div>
+    {% endfor %}
 </div>
 
-<div>
-<button class="btn"
-onclick="viewAnswers({{ s._id }})">
-Evaluate Answers
-</button>
-</div>
-
-</div>
-
-{% endfor %}
-
-</div>
-
-<!-- ANSWER EVALUATION -->
 <div class="card" id="answerArea">
-
-<div class="section-title">
-Click on a session to evaluate answers
-</div>
-
+    <div class="section-title">Answer Evaluation</div>
+    <p style="color: #64748b; margin: 0;">Click on a session to evaluate answers.</p>
 </div>
 
 </div>
@@ -285,7 +164,7 @@ Click on a session to evaluate answers
 <script>
 (function() {
   setInterval(function() {
-    fetch('/api/session_check', { credentials: 'same-origin' })
+    fetch('/api/session_check?role=INVIGILATOR', { credentials: 'same-origin' })
       .then(function(r) { if (r.status === 401) window.location.href = '/login'; })
       .catch(function() {});
   }, 2500);

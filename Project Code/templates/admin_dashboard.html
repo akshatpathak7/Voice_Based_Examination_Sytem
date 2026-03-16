@@ -1,552 +1,253 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard</title>
-    <script src="{{ url_for('static', filename='admin.js') }}"></script>
-    <style>
-        /* Global Theme */
-        body {
-            margin: 0;
-            font-family: 'Segoe UI', Arial;
-            background: #f0f4f8;
-        }
-
-        /* Header */
-        .header {
-            background: linear-gradient(135deg, #0f172a, #1e293b);
-            color: white;
-            padding: 15px 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
-        }
-
-        .header h2 {
-            margin: 0;
-            font-size: 22px;
-            letter-spacing: 0.5px;
-        }
-
-        .logout {
-            background: #dc2626;
-            color: white;
-            padding: 8px 18px;
-            text-decoration: none;
-            border-radius: 6px;
-            font-weight: 600;
-            transition: background 0.2s;
-        }
-
-        .logout:hover {
-            background: #b91c1c;
-        }
-
-        /* Container */
-        .container {
-            width: 92%;
-            max-width: 1200px;
-            margin: auto;
-            margin-top: 20px;
-            padding-bottom: 40px;
-        }
-
-        /* Card Layout */
-        .card {
-            background: white;
-            padding: 24px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-            transition: box-shadow 0.2s;
-        }
-
-        .card:hover {
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-        }
-
-        /* Section Title */
-        .section-title {
-            font-size: 18px;
-            font-weight: 700;
-            margin-bottom: 14px;
-            color: #0f172a;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* Buttons */
-        .btn {
-            padding: 8px 16px;
-            margin: 4px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            color: white;
-            background: #1e293b;
-            font-weight: 600;
-            font-size: 13px;
-            transition: all 0.2s;
-        }
-
-        .btn:hover {
-            background: #334155;
-            transform: translateY(-1px);
-        }
-
-        .btn-danger {
-            background: #dc2626;
-        }
-
-        .btn-danger:hover {
-            background: #b91c1c;
-        }
-
-        .btn-success {
-            background: #16a34a;
-        }
-
-        .btn-success:hover {
-            background: #15803d;
-        }
-
-        .btn-primary {
-            background: #2563eb;
-        }
-
-        .btn-primary:hover {
-            background: #1d4ed8;
-        }
-
-        /* Form */
-        .form-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: flex-end;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .form-group label {
-            font-size: 12px;
-            font-weight: 600;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .form-group input,
-        .form-group select {
-            padding: 8px 12px;
-            border-radius: 6px;
-            border: 1px solid #cbd5e1;
-            font-size: 14px;
-            min-width: 140px;
-            transition: border-color 0.2s;
-        }
-
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: #2563eb;
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-        }
-
-        /* Table */
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-
-        .data-table th {
-            background: #f1f5f9;
-            padding: 10px 14px;
-            text-align: left;
-            font-weight: 700;
-            color: #475569;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            border-bottom: 2px solid #e2e8f0;
-        }
-
-        .data-table td {
-            padding: 10px 14px;
-            border-bottom: 1px solid #f1f5f9;
-            color: #334155;
-        }
-
-        .data-table tr:hover td {
-            background: #f8fafc;
-        }
-
-        /* Role Badges */
-        .role-badge {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .role-ADMIN {
-            background: #0f172a;
-            color: white;
-        }
-
-        .role-INVIGILATOR {
-            background: #dbeafe;
-            color: #1d4ed8;
-        }
-
-        .role-EXAMINER {
-            background: #ede9fe;
-            color: #6d28d9;
-        }
-
-        .role-CANDIDATE {
-            background: #dcfce7;
-            color: #15803d;
-        }
-
-        /* Flash Messages */
-        .flash-box {
-            border-left: 4px solid #0f172a;
-            background: #f1f5f9;
-        }
-
-        /* Assignment Cards */
-        .assignment-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        @media (max-width: 768px) {
-            .assignment-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .assignment-item {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            padding: 12px 16px;
-            border-radius: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: border-color 0.2s;
-        }
-
-        .assignment-item:hover {
-            border-color: #94a3b8;
-        }
-
-        .assignment-info {
-            font-size: 14px;
-        }
-
-        .assignment-info strong {
-            color: #1e293b;
-        }
-
-        .assignment-info span {
-            color: #64748b;
-            font-size: 13px;
-        }
-
-        /* Empty State */
-        .empty-state {
-            text-align: center;
-            color: #94a3b8;
-            padding: 20px;
-            font-size: 14px;
-        }
-
-        /* Two Column Layout */
-        .two-col {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        @media (max-width: 768px) {
-            .two-col {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+    <script src="{{ url_for('static', filename='admin.js') }}" defer></script>
 </head>
-
 <body>
 
-    <!-- HEADER -->
-    <div class="header">
-        <h2>🛡️ Admin Control Panel</h2>
-        <a class="logout" href="/admin/logout">Logout</a>
+<div class="header">
+    <h2>Admin Control Panel</h2>
+    <a class="logout" href="/admin/logout">Logout</a>
+</div>
+
+<div class="container">
+
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <div class="card flash-box">
+        {% for msg in messages %}
+        <p style="margin: 4px 0;">{{ msg }}</p>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <div class="section-title">+ Create User Account</div>
+
+        <form action="/admin/create_user" method="post">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Role *</label>
+                    <select name="role" id="role-select" required>
+                        <option value="CANDIDATE">Student</option>
+                        <option value="INVIGILATOR">Invigilator</option>
+                        <option value="EXAMINER">Examiner</option>
+                        <option value="ADMIN">Admin</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Full Name *</label>
+                    <input type="text" name="full_name" placeholder="Full Name" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Username *</label>
+                    <input type="text" name="username" placeholder="Username" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Email *</label>
+                    <input type="email" name="email" placeholder="Email" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Password *</label>
+                    <input type="password" name="password" placeholder="Password" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="text" name="phone_no" placeholder="Phone (optional)">
+                </div>
+
+                <div class="form-group" id="reg-group">
+                    <label>Registration No. *</label>
+                    <input type="text" name="registration_no" placeholder="Registration No.">
+                </div>
+
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button class="btn btn-success">Create User</button>
+                </div>
+            </div>
+        </form>
     </div>
 
-    <div class="container">
+    <div class="card">
+        <div class="section-title">Users</div>
 
-        <!-- FLASH MESSAGES -->
-        {% with messages = get_flashed_messages() %}
-        {% if messages %}
-        <div class="card flash-box">
-            {% for msg in messages %}
-            <p style="margin: 4px 0;">{{ msg }}</p>
-            {% endfor %}
-        </div>
+        {% if users|length == 0 %}
+        <div class="empty-state">No users in the system.</div>
+        {% else %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td>{{ u._id }}</td>
+                    <td><strong>{{ u.full_name }}</strong></td>
+                    <td>{{ u.username }}</td>
+                    <td>{{ u.email }}</td>
+                    <td><span class="role-badge role-{{ u.role }}">{{ u.role }}</span></td>
+                    <td>
+                        {% if u.role == 'CANDIDATE' %}
+                        <form action="/admin/delete_student/{{ u._id }}" method="post" style="display:inline;"
+                            onsubmit="return confirmDelete('{{ u.full_name }}')">
+                            <button class="btn btn-danger" type="submit">Delete</button>
+                        </form>
+                        {% else %}
+                        <span style="color: #94a3b8; font-size: 13px;">&bull;</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
         {% endif %}
-        {% endwith %}
+    </div>
 
+    <div class="two-col">
 
-        <!-- ===================== CREATE USER ===================== -->
         <div class="card">
-            <div class="section-title">➕ Create User Account</div>
+            <div class="section-title">Assign Invigilator to Exam</div>
 
-            <form action="/admin/create_user" method="post">
+            <form action="/admin/assign_invigilator" method="post">
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Role *</label>
-                        <select name="role" id="role-select" required>
-                            <option value="CANDIDATE">Student</option>
-                            <option value="INVIGILATOR">Invigilator</option>
-                            <option value="EXAMINER">Examiner</option>
-                            <option value="ADMIN">Admin</option>
+                        <label>Invigilator</label>
+                        <select name="invigilator_id" required>
+                            {% for u in users %}
+                            {% if u.role == 'INVIGILATOR' %}
+                            <option value="{{ u._id }}">{{ u.full_name }}</option>
+                            {% endif %}
+                            {% endfor %}
                         </select>
                     </div>
 
                     <div class="form-group">
-                        <label>Full Name *</label>
-                        <input type="text" name="full_name" placeholder="Full Name" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Username *</label>
-                        <input type="text" name="username" placeholder="Username" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Email *</label>
-                        <input type="email" name="email" placeholder="Email" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Password *</label>
-                        <input type="password" name="password" placeholder="Password" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Phone</label>
-                        <input type="text" name="phone_no" placeholder="Phone (optional)">
-                    </div>
-
-                    <div class="form-group" id="reg-group">
-                        <label>Registration No. *</label>
-                        <input type="text" name="registration_no" placeholder="Registration No.">
+                        <label>Exam</label>
+                        <select name="exam_id" required>
+                            {% for e in exams %}
+                            <option value="{{ e._id }}">{{ e.exam_name }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
 
                     <div class="form-group">
                         <label>&nbsp;</label>
-                        <button class="btn btn-success">Create User</button>
+                        <button class="btn btn-primary">Assign</button>
                     </div>
                 </div>
             </form>
-        </div>
 
+            <hr class="section-divider">
 
-        <!-- ===================== ALL USERS ===================== -->
-        <div class="card">
-            <div class="section-title">👥 All Users</div>
+            <div class="subsection-title">Current Assignments</div>
 
-            {% if users|length == 0 %}
-            <div class="empty-state">No users in the system.</div>
-            {% else %}
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>Username</th>
-                        <th>Email</th>
-                        <th>Role</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for u in users %}
-                    <tr>
-                        <td>{{ u._id }}</td>
-                        <td><strong>{{ u.full_name }}</strong></td>
-                        <td>{{ u.username }}</td>
-                        <td>{{ u.email }}</td>
-                        <td><span class="role-badge role-{{ u.role }}">{{ u.role }}</span></td>
-                        <td>
-                            {% if u.role == 'CANDIDATE' %}
-                            <form action="/admin/delete_student/{{ u._id }}" method="post" style="display:inline;"
-                                onsubmit="return confirmDelete('{{ u.full_name }}')">
-                                <button class="btn btn-danger" type="submit">🗑️ Delete</button>
-                            </form>
-                            {% else %}
-                            <span style="color: #94a3b8; font-size: 13px;">—</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            {% if invigilator_assignments|length == 0 %}
+            <div class="empty-state">No invigilator assignments.</div>
             {% endif %}
+
+            {% for a in invigilator_assignments %}
+            <div class="assignment-item">
+                <div class="assignment-info">
+                    <strong>{{ a.invigilator_name }}</strong><br>
+                    <span>&rarr; {{ a.exam_name }}</span>
+                </div>
+            </div>
+            {% endfor %}
         </div>
 
+        <div class="card">
+            <div class="section-title">Assign Examiner to Student</div>
 
-        <!-- ===================== ASSIGNMENTS ===================== -->
-        <div class="two-col">
-
-            <!-- ASSIGN INVIGILATOR TO EXAM -->
-            <div class="card">
-                <div class="section-title">📋 Assign Invigilator → Exam</div>
-
-                <form action="/admin/assign_invigilator" method="post">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Invigilator</label>
-                            <select name="invigilator_id" required>
-                                {% for u in users %}
-                                {% if u.role == 'INVIGILATOR' %}
-                                <option value="{{ u._id }}">{{ u.full_name }}</option>
-                                {% endif %}
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Exam</label>
-                            <select name="exam_id" required>
-                                {% for e in exams %}
-                                <option value="{{ e._id }}">{{ e.exam_name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label>&nbsp;</label>
-                            <button class="btn btn-primary">Assign</button>
-                        </div>
+            <form action="/admin/assign_examiner" method="post">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Examiner</label>
+                        <select name="examiner_id" required>
+                            {% for u in users %}
+                            {% if u.role == 'EXAMINER' %}
+                            <option value="{{ u._id }}">{{ u.full_name }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
                     </div>
+
+                    <div class="form-group">
+                        <label>Student</label>
+                        <select name="candidate_id" required>
+                            {% for c in candidates %}
+                            <option value="{{ c._id }}">{{ c.registration_no }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Exam</label>
+                        <select name="exam_id" required>
+                            {% for e in exams %}
+                            <option value="{{ e._id }}">{{ e.exam_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-primary">Assign</button>
+                    </div>
+                </div>
+            </form>
+
+            <hr class="section-divider">
+
+            <div class="subsection-title">Current Assignments</div>
+
+            {% if examiner_assignments|length == 0 %}
+            <div class="empty-state">No examiner assignments.</div>
+            {% endif %}
+
+            {% for a in examiner_assignments %}
+            <div class="assignment-item" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <div class="assignment-info">
+                    <strong>{{ a.examiner_name }}</strong><br>
+                    <span>&rarr; {{ a.student_name }} ({{ a.registration_no }}) | {{ a.exam_name }}</span>
+                </div>
+                <form action="/admin/remove_examiner_assignment/{{ a._id }}" method="post" style="display:inline;"
+                    onsubmit="return confirmRemoveAssignment()">
+                    <button class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;">&times;</button>
                 </form>
-
-                <hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;">
-
-                <div style="font-weight: 600; font-size: 13px; color: #64748b; margin-bottom: 8px;">
-                    CURRENT ASSIGNMENTS
-                </div>
-
-                {% if invigilator_assignments|length == 0 %}
-                <div class="empty-state">No invigilator assignments.</div>
-                {% endif %}
-
-                {% for a in invigilator_assignments %}
-                <div class="assignment-item">
-                    <div class="assignment-info">
-                        <strong>{{ a.invigilator_name }}</strong>
-                        <br>
-                        <span>→ {{ a.exam_name }}</span>
-                    </div>
-                </div>
-                {% endfor %}
             </div>
-
-            <!-- ASSIGN EXAMINER TO STUDENT -->
-            <div class="card">
-                <div class="section-title">📝 Assign Examiner → Student</div>
-
-                <form action="/admin/assign_examiner" method="post">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Examiner</label>
-                            <select name="examiner_id" required>
-                                {% for u in users %}
-                                {% if u.role == 'EXAMINER' %}
-                                <option value="{{ u._id }}">{{ u.full_name }}</option>
-                                {% endif %}
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Student</label>
-                            <select name="candidate_id" required>
-                                {% for c in candidates %}
-                                <option value="{{ c._id }}">{{ c.registration_no }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Exam</label>
-                            <select name="exam_id" required>
-                                {% for e in exams %}
-                                <option value="{{ e._id }}">{{ e.exam_name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label>&nbsp;</label>
-                            <button class="btn btn-primary">Assign</button>
-                        </div>
-                    </div>
-                </form>
-
-                <hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;">
-
-                <div style="font-weight: 600; font-size: 13px; color: #64748b; margin-bottom: 8px;">
-                    CURRENT ASSIGNMENTS
-                </div>
-
-                {% if examiner_assignments|length == 0 %}
-                <div class="empty-state">No examiner assignments.</div>
-                {% endif %}
-
-                {% for a in examiner_assignments %}
-                <div class="assignment-item">
-                    <div class="assignment-info">
-                        <strong>{{ a.examiner_name }}</strong>
-                        <br>
-                        <span>→ {{ a.student_name }} ({{ a.registration_no }}) — {{ a.exam_name }}</span>
-                    </div>
-                    <form action="/admin/remove_examiner_assignment/{{ a._id }}" method="post" style="display:inline;"
-                        onsubmit="return confirmRemoveAssignment()">
-                        <button class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;">✕</button>
-                    </form>
-                </div>
-                {% endfor %}
-            </div>
-
+            {% endfor %}
         </div>
 
     </div>
 
+</div>
+
 <script>
 (function() {
   setInterval(function() {
-    fetch('/api/session_check', { credentials: 'same-origin' })
+    fetch('/api/session_check?role=ADMIN', { credentials: 'same-origin' })
       .then(function(r) { if (r.status === 401) window.location.href = '/login'; })
       .catch(function() {});
   }, 2500);
 })();
 </script>
 </body>
-
 </html>
