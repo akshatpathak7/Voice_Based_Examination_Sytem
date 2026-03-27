@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, g
+from difflib import SequenceMatcher
 import math
 import os
 import re
@@ -88,6 +89,29 @@ def normalize_answer(question_text, answer_text):
     return text
 
 
+def _is_active_flag(doc):
+    """Treat missing is_active as active for backward compatibility."""
+    if not doc:
+        return False
+    return doc.get("is_active", True) is not False
+
+
+def _format_datetime_for_display(dt):
+    if not dt:
+        return "-"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("%d %b %Y, %I:%M %p UTC")
+
+
+def _candidate_and_user(db, candidate_id):
+    candidate = db.candidates.find_one({"_id": candidate_id})
+    if not candidate:
+        return None, None
+    user = db.users.find_one({"_id": candidate["reg_id"]})
+    return candidate, user
+
+
 # ---------- ROUTES ----------
 
 @app.route('/')
@@ -117,6 +141,10 @@ def login():
 
     if not check_password_hash(user["password_hash"], password):
         flash("Invalid username or password")
+        return redirect(url_for('show_login'))
+
+    if not _is_active_flag(user):
+        flash("Your account is inactive. Please contact the administrator.")
         return redirect(url_for('show_login'))
 
     role = user["role"]
@@ -194,7 +222,7 @@ def verify_session_for_role(role, account):
     user = db.users.find_one({"_id": uid})
     if not user:
         return False
-    return user.get("role") == role
+    return user.get("role") == role and _is_active_flag(user)
 
 
 @app.before_request
@@ -249,6 +277,52 @@ def candidate_dashboard():
     )
 
 
+@app.route('/candidate/results')
+def candidate_results():
+    db = get_db()
+    if g.current_role != 'CANDIDATE':
+        return redirect(url_for('show_login'))
+
+    candidate = db.candidates.find_one({"reg_id": g.current_user_id})
+    user = db.users.find_one({"_id": g.current_user_id})
+    if not candidate:
+        return render_template(
+            'candidate_results.html',
+            student_name=user["full_name"] if user else "Student",
+            results=[],
+        )
+
+    sessions = list(
+        db.exam_sessions.find({"candidate_id": candidate["_id"]}).sort("start_time", -1)
+    )
+
+    results = []
+    for sess in sessions:
+        exam = db.exams.find_one({"_id": sess["exam_id"]})
+        answers = list(db.answers.find({"session_id": sess["_id"]}))
+        graded_answers = [a for a in answers if a.get("marks") is not None]
+        graded_at_values = [a.get("graded_at") for a in graded_answers if a.get("graded_at")]
+
+        results.append({
+            "session_id": sess["_id"],
+            "exam_name": exam["exam_name"] if exam else f"Exam #{sess.get('exam_id')}",
+            "exam_active": _is_active_flag(exam) if exam else False,
+            "status": sess.get("status", "UNKNOWN"),
+            "answers_count": len(answers),
+            "graded_count": len(graded_answers),
+            "total_marks": sum(a.get("marks", 0) or 0 for a in graded_answers) if graded_answers else None,
+            "started_at": _format_datetime_for_display(sess.get("start_time")),
+            "submitted_at": _format_datetime_for_display(sess.get("submitted_at") or sess.get("end_time")),
+            "graded_at": _format_datetime_for_display(max(graded_at_values) if graded_at_values else None),
+        })
+
+    return render_template(
+        'candidate_results.html',
+        student_name=user["full_name"] if user else "Student",
+        results=results,
+    )
+
+
 @app.route('/admin/dashboard')
 def admin_dashboard():
 
@@ -260,6 +334,14 @@ def admin_dashboard():
     users = list(db.users.find())
     exams = list(db.exams.find())
     candidates = list(db.candidates.find())
+    for user in users:
+        user["is_active"] = _is_active_flag(user)
+    for exam in exams:
+        exam["is_active"] = _is_active_flag(exam)
+    for candidate in candidates:
+        student_user = db.users.find_one({"_id": candidate.get("reg_id")})
+        candidate["student_name"] = student_user["full_name"] if student_user else "Unknown"
+        candidate["is_active"] = _is_active_flag(student_user) if student_user else False
 
     # Enrich examiner assignments with names
     examiner_assignments = []
@@ -346,6 +428,7 @@ def admin_create_user():
         "email": email,
         "password_hash": generate_password_hash(password),
         "role": role,
+        "is_active": True,
         "phone_no": phone or None,
         "created_at": datetime.now(timezone.utc),
         "session_token": None,
@@ -363,46 +446,10 @@ def admin_create_user():
     return redirect(url_for('admin_dashboard'))
 
 
-def _delete_candidate_with_related(db, candidate):
-    """Delete candidate user/profile and all dependent records."""
-    if not candidate:
-        return None
+# ---------- ADMIN: TOGGLE STUDENT STATUS ----------
 
-    user = db.users.find_one({"_id": candidate["reg_id"]})
-
-    db.examiner_assignments.delete_many({"candidate_id": candidate["_id"]})
-    db.exam_assignments.delete_many({"candidate_id": candidate["_id"]})
-
-    sessions = list(db.exam_sessions.find({"candidate_id": candidate["_id"]}, {"_id": 1}))
-    for sess in sessions:
-        db.answers.delete_many({"session_id": sess["_id"]})
-    db.exam_sessions.delete_many({"candidate_id": candidate["_id"]})
-
-    db.candidates.delete_one({"_id": candidate["_id"]})
-    if user:
-        db.users.delete_one({"_id": user["_id"]})
-
-    return user
-
-
-def _delete_exam_with_related(db, exam_id):
-    """Delete exam and all dependent records."""
-    sessions = list(db.exam_sessions.find({"exam_id": exam_id}, {"_id": 1}))
-    for sess in sessions:
-        db.answers.delete_many({"session_id": sess["_id"]})
-
-    db.exam_sessions.delete_many({"exam_id": exam_id})
-    db.questions.delete_many({"exam_id": exam_id})
-    db.exam_assignments.delete_many({"exam_id": exam_id})
-    db.examiner_assignments.delete_many({"exam_id": exam_id})
-
-    return db.exams.delete_one({"_id": exam_id})
-
-
-# ---------- ADMIN: DELETE STUDENT ----------
-
-@app.route('/admin/delete_student/<int:user_id>', methods=['POST'])
-def admin_delete_student(user_id):
+@app.route('/admin/toggle_student_status/<int:user_id>', methods=['POST'])
+def admin_toggle_student_status(user_id):
     db = get_db()
 
     if g.current_role != 'ADMIN':
@@ -413,12 +460,15 @@ def admin_delete_student(user_id):
         flash("Student not found.")
         return redirect(url_for('admin_dashboard'))
 
-    candidate = db.candidates.find_one({"reg_id": user_id})
-    if candidate:
-        _delete_candidate_with_related(db, candidate)
-    else:
-        db.users.delete_one({"_id": user_id})
-    flash(f"Student '{user['full_name']}' deleted successfully.")
+    new_status = not _is_active_flag(user)
+    db.users.update_one(
+        {"_id": user_id},
+        {"$set": {"is_active": new_status, "updated_at": datetime.now(timezone.utc)}},
+    )
+    flash(
+        f"Student '{user['full_name']}' set to "
+        f"{'Active' if new_status else 'Inactive'}."
+    )
     return redirect(url_for('admin_dashboard'))
 
 
@@ -434,6 +484,27 @@ def admin_assign_examiner():
     examiner_id = int(request.form['examiner_id'])
     candidate_id = int(request.form['candidate_id'])
     exam_id = int(request.form['exam_id'])
+
+    examiner = db.users.find_one({"_id": examiner_id, "role": "EXAMINER"})
+    if not examiner:
+        flash("Examiner not found.")
+        return redirect(url_for('admin_dashboard'))
+    if not _is_active_flag(examiner):
+        flash("Cannot assign an inactive examiner.")
+        return redirect(url_for('admin_dashboard'))
+
+    candidate, student_user = _candidate_and_user(db, candidate_id)
+    if not candidate or not student_user:
+        flash("Student not found.")
+        return redirect(url_for('admin_dashboard'))
+    if not _is_active_flag(student_user):
+        flash("Cannot assign an inactive student.")
+        return redirect(url_for('admin_dashboard'))
+
+    exam = db.exams.find_one({"_id": exam_id})
+    if not exam:
+        flash("Exam not found.")
+        return redirect(url_for('admin_dashboard'))
 
     # Check if assignment already exists
     existing = db.examiner_assignments.find_one({
@@ -483,11 +554,22 @@ def admin_assign_invigilator():
     invigilator_id = int(request.form['invigilator_id'])
     exam_id = int(request.form['exam_id'])
 
+    inv = db.users.find_one({"_id": invigilator_id, "role": "INVIGILATOR"})
+    if not inv:
+        flash("Invigilator not found.")
+        return redirect(url_for('admin_dashboard'))
+    if not _is_active_flag(inv):
+        flash("Cannot assign an inactive invigilator.")
+        return redirect(url_for('admin_dashboard'))
+
+    exam = db.exams.find_one({"_id": exam_id})
+    if not exam:
+        flash("Exam not found.")
+        return redirect(url_for('admin_dashboard'))
+
     # Update the exam's created_by to this invigilator
     db.exams.update_one({"_id": exam_id}, {"$set": {"created_by": invigilator_id}})
 
-    inv = db.users.find_one({"_id": invigilator_id})
-    exam = db.exams.find_one({"_id": exam_id})
     flash(f"Invigilator '{inv['full_name']}' assigned to '{exam['exam_name']}'.")
     return redirect(url_for('admin_dashboard'))
 
@@ -532,6 +614,7 @@ def create_student():
         "email": email,
         "password_hash": generate_password_hash(password),
         "role": "CANDIDATE",
+        "is_active": True,
         "phone_no": phone or None,
         "created_at": datetime.now(timezone.utc),
         "session_token": None,
@@ -548,20 +631,26 @@ def create_student():
     return redirect(request.referrer or url_for('invigilator_dashboard'))
 
 
-@app.route('/invigilator/delete_student/<int:candidate_id>', methods=['POST'])
-def invigilator_delete_student(candidate_id):
+@app.route('/invigilator/toggle_student_status/<int:candidate_id>', methods=['POST'])
+def invigilator_toggle_student_status(candidate_id):
     db = get_db()
     if g.current_role != 'INVIGILATOR':
         return redirect(url_for('show_login'))
 
-    candidate = db.candidates.find_one({"_id": candidate_id})
-    if not candidate:
+    candidate, user = _candidate_and_user(db, candidate_id)
+    if not candidate or not user:
         flash("Student not found.")
         return redirect(url_for('invigilator_dashboard'))
 
-    user = _delete_candidate_with_related(db, candidate)
-    display_name = user["full_name"] if user else candidate.get("registration_no", "Student")
-    flash(f"Student '{display_name}' deleted successfully.")
+    new_status = not _is_active_flag(user)
+    db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"is_active": new_status, "updated_at": datetime.now(timezone.utc)}},
+    )
+    flash(
+        f"Student '{user['full_name']}' set to "
+        f"{'Active' if new_status else 'Inactive'}."
+    )
     return redirect(url_for('invigilator_dashboard'))
 
 
@@ -575,6 +664,20 @@ def assign_student_exam():
 
     candidate_id = int(request.form.get('candidate_id'))
     exam_id = int(request.form.get('exam_id'))
+
+    candidate, user = _candidate_and_user(db, candidate_id)
+    if not candidate or not user:
+        flash("Student not found.")
+        return redirect(url_for('invigilator_dashboard'))
+
+    if not _is_active_flag(user):
+        flash("Inactive students cannot be assigned to exams.")
+        return redirect(url_for('invigilator_dashboard'))
+
+    exam = db.exams.find_one({"_id": exam_id})
+    if not exam:
+        flash("Exam not found.")
+        return redirect(url_for('invigilator_dashboard'))
 
     existing = db.exam_assignments.find_one({
         "candidate_id": candidate_id,
@@ -616,17 +719,25 @@ def invigilator_dashboard():
 
     db = get_db()
     exams = list(db.exams.find())
+    for exam in exams:
+        exam["is_active"] = _is_active_flag(exam)
     sessions = list(db.exam_sessions.find())
 
     # Candidates (students) for assign-student-to-exam
     candidates = []
     for c in db.candidates.find():
         u = db.users.find_one({"_id": c["reg_id"]})
+        if not u:
+            continue
         candidates.append({
             "_id": c["_id"],
-            "full_name": u["full_name"] if u else "Unknown",
+            "user_id": u["_id"],
+            "full_name": u["full_name"],
             "registration_no": c.get("registration_no", "N/A"),
+            "is_active": _is_active_flag(u),
         })
+    active_candidates = [c for c in candidates if c["is_active"]]
+    active_exams = [e for e in exams if e["is_active"]]
 
     # Invigilator-created exam assignments (candidate + exam)
     exam_assignments = []
@@ -640,13 +751,17 @@ def invigilator_dashboard():
             "exam_name": ex["exam_name"] if ex else "Unknown",
             "candidate_id": a["candidate_id"],
             "exam_id": a["exam_id"],
+            "candidate_active": _is_active_flag(u) if u else False,
+            "exam_active": _is_active_flag(ex) if ex else False,
         })
 
     return render_template(
         'invigilator_dashboard.html',
         exams=exams,
+        active_exams=active_exams,
         sessions=sessions,
         candidates=candidates,
+        active_candidates=active_candidates,
         exam_assignments=exam_assignments,
     )
 
@@ -682,7 +797,9 @@ def create_exam():
         "exam_name": exam_name,
         "duration": duration,
         "total_marks": 100,
+        "is_active": False,
         "created_by": g.current_user_id,
+        "created_at": datetime.now(timezone.utc),
         "enc_key_ciphertext": enc_ct,
         "enc_key_iv": enc_iv,
         "enc_key_tag": enc_tag,
@@ -692,8 +809,8 @@ def create_exam():
     return redirect(url_for('invigilator_dashboard'))
 
 
-@app.route('/invigilator/delete_exam/<int:exam_id>', methods=['POST'])
-def invigilator_delete_exam(exam_id):
+@app.route('/invigilator/toggle_exam_status/<int:exam_id>', methods=['POST'])
+def invigilator_toggle_exam_status(exam_id):
     db = get_db()
     if g.current_role != 'INVIGILATOR':
         return redirect(url_for('show_login'))
@@ -703,19 +820,27 @@ def invigilator_delete_exam(exam_id):
         flash("Exam not found.")
         return redirect(url_for('invigilator_dashboard'))
 
-    _delete_exam_with_related(db, exam_id)
-    flash(f"Exam '{exam.get('exam_name', exam_id)}' deleted successfully.")
+    new_status = not _is_active_flag(exam)
+    if new_status:
+        # Keep only one active exam at a time for candidate-side exam flow.
+        db.exams.update_many({}, {"$set": {"is_active": False}})
+
+    db.exams.update_one(
+        {"_id": exam_id},
+        {"$set": {"is_active": new_status, "updated_at": datetime.now(timezone.utc)}},
+    )
+    flash(
+        f"Exam '{exam.get('exam_name', exam_id)}' set to "
+        f"{'Active' if new_status else 'Inactive'}."
+    )
     return redirect(url_for('invigilator_dashboard'))
 
 
 # ---------- START EXAM (invigilator starts for all assigned students) ----------
 
 def _get_active_exam(db):
-    """Return the exam that is currently active (is_active=True), or the first exam."""
-    exam = db.exams.find_one({"is_active": True})
-    if exam:
-        return exam
-    return db.exams.find_one()
+    """Return the exam that is currently active. Missing is_active is treated as active."""
+    return db.exams.find_one({"is_active": {"$ne": False}})
 
 
 def _ensure_examiner_assignment(db, candidate_id, exam_id):
@@ -740,7 +865,10 @@ def _ensure_examiner_assignment(db, candidate_id, exam_id):
     examiner_id = prior.get("examiner_id") if prior else None
 
     if examiner_id is None:
-        examiner_user = db.users.find_one({"role": "EXAMINER"}, sort=[("_id", 1)])
+        examiner_user = db.users.find_one(
+            {"role": "EXAMINER", "is_active": {"$ne": False}},
+            sort=[("_id", 1)],
+        )
         if not examiner_user:
             return None
         examiner_id = examiner_user["_id"]
@@ -781,8 +909,17 @@ def start_exam_invigilator(exam_id):
         candidate_ids.add(a["candidate_id"])
     candidate_ids = list(candidate_ids)
 
-    created = 0
+    eligible_candidate_ids = []
+    skipped_inactive = 0
     for cid in candidate_ids:
+        _, cand_user = _candidate_and_user(db, cid)
+        if not cand_user or not _is_active_flag(cand_user):
+            skipped_inactive += 1
+            continue
+        eligible_candidate_ids.append(cid)
+
+    created = 0
+    for cid in eligible_candidate_ids:
         _ensure_examiner_assignment(db, cid, exam_id)
 
         # Only create if they don't already have a non-submitted session for this exam
@@ -805,7 +942,8 @@ def start_exam_invigilator(exam_id):
 
     flash(
         f"Exam '{exam['exam_name']}' started. "
-        f"Session created for {created} student(s) (total assigned: {len(candidate_ids)})."
+        f"Session created for {created} student(s) "
+        f"(eligible: {len(eligible_candidate_ids)}, skipped inactive: {skipped_inactive})."
     )
     return redirect(url_for('invigilator_dashboard'))
 
@@ -825,7 +963,8 @@ def get_exam_questions(exam_id):
     for q in questions:
         data.append({
             "id": q["_id"],
-            "text": q["question_text"]
+            "text": q["question_text"],
+            "model_answer": q.get("model_answer", ""),
         })
 
     return jsonify(data)
@@ -839,13 +978,19 @@ def add_question():
         return jsonify({"error": "unauthorized"}), 401
 
     exam_id = int(request.form['exam_id'])
-    text = request.form['text']
+    text = request.form.get('text', '').strip()
+    model_answer = request.form.get('model_answer', '').strip()
+
+    if not text or not model_answer:
+        return jsonify({"error": "Both question and answer key are required."}), 400
 
     q_id = get_next_id("questions")
     db.questions.insert_one({
         "_id": q_id,
         "exam_id": exam_id,
         "question_text": text,
+        "model_answer": model_answer,
+        "created_at": datetime.now(timezone.utc),
     })
 
     return jsonify({"status": "added"})
@@ -859,9 +1004,20 @@ def update_question():
         return jsonify({"error": "unauthorized"}), 401
 
     qid = int(request.form['qid'])
-    text = request.form['text']
+    text = request.form.get('text', '').strip()
+    model_answer = request.form.get('model_answer', '').strip()
 
-    db.questions.update_one({"_id": qid}, {"$set": {"question_text": text}})
+    if not text or not model_answer:
+        return jsonify({"error": "Both question and answer key are required."}), 400
+
+    db.questions.update_one(
+        {"_id": qid},
+        {"$set": {
+            "question_text": text,
+            "model_answer": model_answer,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
 
     return jsonify({"status": "updated"})
 
@@ -890,7 +1046,14 @@ def save_marks():
     answer_id = int(request.form['answer_id'])
     marks = int(request.form['marks'])
 
-    db.answers.update_one({"_id": answer_id}, {"$set": {"marks": marks}})
+    db.answers.update_one(
+        {"_id": answer_id},
+        {"$set": {
+            "marks": marks,
+            "grading_method": "MANUAL",
+            "graded_at": datetime.now(timezone.utc),
+        }},
+    )
 
     return jsonify({"status": "marks saved"})
 
@@ -938,6 +1101,7 @@ def get_answers(session_id):
         data.append({
             "answer_id": a["_id"],
             "question": q["question_text"] if q else "Unknown",
+            "model_answer": q.get("model_answer", "") if q else "",
             "answer": plaintext,
             "marks": a.get("marks"),
             "tampered": tampered,
@@ -1105,6 +1269,36 @@ def start_exam():
     })
 
 
+@app.route('/api/submit_exam', methods=['POST'])
+def submit_exam():
+    db = get_db()
+    if g.exam_session_id is None:
+        return jsonify({"error": "session not started"}), 400
+
+    exam_sess = db.exam_sessions.find_one({"_id": g.exam_session_id})
+    if not exam_sess:
+        return jsonify({"error": "session not found"}), 404
+
+    candidate = db.candidates.find_one({"reg_id": g.current_user_id})
+    if not candidate or exam_sess.get("candidate_id") != candidate["_id"]:
+        return jsonify({"error": "forbidden"}), 403
+
+    now = datetime.now(timezone.utc)
+    if exam_sess.get("status") != "SUBMITTED":
+        db.exam_sessions.update_one(
+            {"_id": g.exam_session_id},
+            {"$set": {"status": "SUBMITTED", "end_time": now, "submitted_at": now}},
+        )
+
+    accounts = session.get("accounts") or {}
+    candidate_account = accounts.get("CANDIDATE") or {}
+    candidate_account["exam_session_id"] = None
+    accounts["CANDIDATE"] = candidate_account
+    session["accounts"] = accounts
+
+    return jsonify({"status": "submitted", "submitted_at": _format_datetime_for_display(now)})
+
+
 # ---------- EXAM SUBMITTED ----------
 @app.route('/exam/submitted')
 def exam_submitted():
@@ -1124,11 +1318,6 @@ def _examiner_can_access_session(db, examiner_id, session_id):
         "exam_id": exam_sess["exam_id"],
     })
     return assignment is not None
-
-
-def _delete_exam_session_with_answers(db, session_id):
-    db.answers.delete_many({"session_id": session_id})
-    db.exam_sessions.delete_one({"_id": session_id})
 
 
 @app.route('/examiner/dashboard')
@@ -1179,8 +1368,7 @@ def examiner_delete_session(session_id):
         flash("You are not assigned to delete this exam session.")
         return redirect(url_for('examiner_dashboard'))
 
-    _delete_exam_session_with_answers(db, session_id)
-    flash(f"Exam session #{session_id} deleted.")
+    flash("Deleting sessions is disabled. Exam records are preserved.")
     return redirect(url_for('examiner_dashboard'))
 
 
@@ -1230,6 +1418,7 @@ def get_student_answers(session_id):
         data.append({
             "answer_id": a["_id"],
             "question": q["question_text"] if q else "Unknown",
+            "model_answer": q.get("model_answer", "") if q else "",
             "answer": plaintext,
             "marks": a.get("marks"),
             "ai_marks": a.get("ai_marks"),
@@ -1258,30 +1447,31 @@ def examiner_save_grade():
 
     db.answers.update_one(
         {"_id": answer_id},
-        {"$set": {"marks": marks, "grading_method": "MANUAL"}}
+        {"$set": {
+            "marks": marks,
+            "grading_method": "MANUAL",
+            "graded_at": datetime.now(timezone.utc),
+        }}
     )
 
     return jsonify({"status": "marks saved", "marks": marks})
 
 
-def _ai_score_answer(question_text, answer_text):
-    """Heuristic AI grading: scores an answer out of 10.
+def _ai_score_answer(question_text, answer_text, model_answer):
+    """Heuristic AI grading out of 10.
 
-    Criteria:
-      - Length adequacy  (0-4 pts): word count vs 50-word target
-      - Keyword match    (0-4 pts): how many question keywords appear in answer
-      - Structure        (0-2 pts): multiple sentences with proper punctuation
+    Primary mode (when model_answer is available):
+      - Coverage of answer-key keywords (0-6)
+      - Similarity against answer key       (0-2)
+      - Length adequacy                     (0-2)
+
+    Fallback mode (no model answer):
+      - Keyword relevance to question       (0-6)
+      - Length + structure                  (0-4)
     """
     if not answer_text or not answer_text.strip():
         return 0
 
-    words = answer_text.split()
-    word_count = len(words)
-
-    # --- Length score (0-4) ---
-    length_score = min(4, math.ceil((word_count / 50) * 4))
-
-    # --- Keyword relevance (0-4) ---
     stop_words = {
         "the", "a", "an", "is", "are", "was", "were", "of", "in", "to",
         "and", "or", "for", "with", "on", "at", "by", "from", "it", "its",
@@ -1291,29 +1481,64 @@ def _ai_score_answer(question_text, answer_text):
         "define", "illustrate", "example", "suitable", "real", "world",
         "one", "two", "three", "using", "between", "them", "type",
     }
-    q_words = set(w.lower().strip(".,!?;:") for w in question_text.split())
-    q_keywords = q_words - stop_words
-    q_keywords = {w for w in q_keywords if len(w) > 2}
+    answer_tokens = [
+        t for t in re.findall(r"[A-Za-z0-9']+", answer_text.lower())
+        if len(t) > 2 and t not in stop_words
+    ]
 
-    if q_keywords:
-        answer_lower = answer_text.lower()
-        matched = sum(1 for kw in q_keywords if kw in answer_lower)
-        keyword_ratio = matched / len(q_keywords)
-        keyword_score = min(4, round(keyword_ratio * 4))
+    if model_answer and model_answer.strip():
+        model_tokens = [
+            t for t in re.findall(r"[A-Za-z0-9']+", model_answer.lower())
+            if len(t) > 2 and t not in stop_words
+        ]
+        model_set = set(model_tokens)
+        answer_set = set(answer_tokens)
+
+        if model_set:
+            coverage_ratio = len(model_set & answer_set) / len(model_set)
+            coverage_score = min(6, round(coverage_ratio * 6))
+        else:
+            coverage_score = 0
+
+        similarity_ratio = SequenceMatcher(
+            None, " ".join(model_tokens), " ".join(answer_tokens)
+        ).ratio() if model_tokens and answer_tokens else 0
+        similarity_score = min(2, round(similarity_ratio * 2))
+
+        model_len = max(1, len(model_answer.split()))
+        answer_len = len(answer_text.split())
+        length_ratio = answer_len / model_len
+        if length_ratio >= 0.75:
+            length_score = 2
+        elif length_ratio >= 0.4:
+            length_score = 1
+        else:
+            length_score = 0
+
+        return max(0, min(10, coverage_score + similarity_score + length_score))
+
+    # Fallback when no answer key is provided for old questions.
+    question_tokens = [
+        t for t in re.findall(r"[A-Za-z0-9']+", question_text.lower())
+        if len(t) > 2 and t not in stop_words
+    ]
+    question_set = set(question_tokens)
+    answer_set = set(answer_tokens)
+
+    if question_set:
+        keyword_ratio = len(question_set & answer_set) / len(question_set)
+        keyword_score = min(6, round(keyword_ratio * 6))
     else:
-        keyword_score = 2  # neutral if no keywords extracted
+        keyword_score = 0
 
-    # --- Structure score (0-2) ---
+    words = answer_text.split()
+    word_count = len(words)
+    length_score = min(2, math.ceil((word_count / 50) * 2))
+
     sentences = [s.strip() for s in re.split(r'[.!?]+', answer_text) if s.strip()]
-    if len(sentences) >= 3:
-        structure_score = 2
-    elif len(sentences) >= 2:
-        structure_score = 1
-    else:
-        structure_score = 0
+    structure_score = 2 if len(sentences) >= 2 else 0
 
-    total = length_score + keyword_score + structure_score
-    return min(10, total)
+    return min(10, keyword_score + length_score + structure_score)
 
 
 @app.route('/examiner/ai_grade', methods=['POST'])
@@ -1353,12 +1578,18 @@ def examiner_ai_grade():
 
     question = db.questions.find_one({"_id": answer_doc["question_id"]})
     question_text = question["question_text"] if question else ""
+    model_answer = question.get("model_answer", "") if question else ""
 
-    ai_marks = _ai_score_answer(question_text, plaintext)
+    ai_marks = _ai_score_answer(question_text, plaintext, model_answer)
 
     db.answers.update_one(
         {"_id": answer_id},
-        {"$set": {"marks": ai_marks, "ai_marks": ai_marks, "grading_method": "AI"}}
+        {"$set": {
+            "marks": ai_marks,
+            "ai_marks": ai_marks,
+            "grading_method": "AI",
+            "graded_at": datetime.now(timezone.utc),
+        }}
     )
 
     return jsonify({"status": "ai graded", "marks": ai_marks})

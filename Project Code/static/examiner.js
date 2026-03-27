@@ -68,6 +68,11 @@ function loadStudentAnswers(sessionId) {
                     ${tamperedBadge}
                 </div>
 
+                <div class="answer-text" style="border-left: 3px solid #cbd5e1;">
+                    <strong>Answer Key:</strong><br>
+                    ${escapeHtml(a.model_answer || "Not provided")}
+                </div>
+
                 <div class="answer-text">
                     ${escapeHtml(a.answer)}
                 </div>

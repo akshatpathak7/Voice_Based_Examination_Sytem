@@ -518,6 +518,7 @@
     state.examActive = false;
     if (state.timerInterval) clearInterval(state.timerInterval);
     recognition.stop();
+    fetch("/api/submit_exam", { method: "POST", credentials: "same-origin" }).catch(() => {});
 
     const skipped = findSkippedQuestions();
     let msg = "";

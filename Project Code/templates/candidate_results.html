@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Student Results</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+
+<div class="header">
+    <h2>{{ student_name }} - Exam Results</h2>
+    <div style="display:flex; gap:8px; align-items:center;">
+        <a class="logout" href="/candidate/dashboard">Back to Exam</a>
+        <a class="logout" href="/candidate/logout">Logout</a>
+    </div>
+</div>
+
+<div class="container">
+    <div class="card">
+        <div class="section-title">Marks and History</div>
+
+        {% if results|length == 0 %}
+        <div class="empty-state">No exam attempts found yet.</div>
+        {% else %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Exam</th>
+                    <th>Session</th>
+                    <th>Exam Status</th>
+                    <th>Session Status</th>
+                    <th>Graded</th>
+                    <th>Total Marks</th>
+                    <th>Started</th>
+                    <th>Submitted</th>
+                    <th>Last Graded</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr>
+                    <td>{{ r.exam_name }}</td>
+                    <td>#{{ r.session_id }}</td>
+                    <td>
+                        {% if r.exam_active %}
+                        <span class="badge badge-manual">Active</span>
+                        {% else %}
+                        <span class="badge badge-tampered">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ r.status }}</td>
+                    <td>{{ r.graded_count }}/{{ r.answers_count }}</td>
+                    <td>
+                        {% if r.total_marks is none %}
+                        <span style="color:#64748b;">Pending</span>
+                        {% else %}
+                        <strong>{{ r.total_marks }}</strong>
+                        {% endif %}
+                    </td>
+                    <td>{{ r.started_at }}</td>
+                    <td>{{ r.submitted_at }}</td>
+                    <td>{{ r.graded_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+(function() {
+  setInterval(function() {
+    fetch('/api/session_check?role=CANDIDATE', { credentials: 'same-origin' })
+      .then(function(r) { if (r.status === 401) window.location.href = '/login'; })
+      .catch(function() {});
+  }, 2500);
+})();
+</script>
+</body>
+</html>

@@ -27,10 +27,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
 /* ---------- Confirmation helpers ---------- */
 
-function confirmDelete(name) {
+function confirmToggleStudent(name) {
     return confirm(
-        `Are you sure you want to delete student "${name}"?\n\n` +
-        `This will also remove their candidate profile, exam sessions, answers, and examiner assignments.`
+        `Change status for student "${name}"?\n\n` +
+        `No exam data will be deleted. This only toggles login access.`
     );
 }
 

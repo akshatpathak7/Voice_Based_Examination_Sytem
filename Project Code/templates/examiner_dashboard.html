@@ -56,10 +56,6 @@
                 </span>
                 <div>
                     <button class="btn" onclick="loadStudentAnswers({{ sess._id }})">Review Answers</button>
-                    <form action="/examiner/delete_session/{{ sess._id }}" method="post" style="display:inline;"
-                          onsubmit="return confirm('Delete this exam session and all its answers?');">
-                        <button type="submit" class="btn btn-danger">Delete Exam</button>
-                    </form>
                 </div>
             </div>
             {% endfor %}

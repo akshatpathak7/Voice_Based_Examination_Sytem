@@ -93,6 +93,7 @@
                     <th>Username</th>
                     <th>Email</th>
                     <th>Role</th>
+                    <th>Status</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -105,10 +106,21 @@
                     <td>{{ u.email }}</td>
                     <td><span class="role-badge role-{{ u.role }}">{{ u.role }}</span></td>
                     <td>
+                        {% if u.is_active %}
+                        <span class="badge badge-manual">Active</span>
+                        {% else %}
+                        <span class="badge badge-tampered">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td>
                         {% if u.role == 'CANDIDATE' %}
-                        <form action="/admin/delete_student/{{ u._id }}" method="post" style="display:inline;"
-                            onsubmit="return confirmDelete('{{ u.full_name }}')">
-                            <button class="btn btn-danger" type="submit">Delete</button>
+                        <form action="/admin/toggle_student_status/{{ u._id }}" method="post" style="display:inline;"
+                            onsubmit="return confirmToggleStudent('{{ u.full_name }}')">
+                            {% if u.is_active %}
+                            <button class="btn btn-danger" type="submit">Set Inactive</button>
+                            {% else %}
+                            <button class="btn btn-success" type="submit">Set Active</button>
+                            {% endif %}
                         </form>
                         {% else %}
                         <span style="color: #94a3b8; font-size: 13px;">&bull;</span>
@@ -143,7 +155,7 @@
                         <label>Exam</label>
                         <select name="exam_id" required>
                             {% for e in exams %}
-                            <option value="{{ e._id }}">{{ e.exam_name }}</option>
+                            <option value="{{ e._id }}">{{ e.exam_name }} {% if e.is_active %}(Active){% else %}(Inactive){% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -193,7 +205,10 @@
                         <label>Student</label>
                         <select name="candidate_id" required>
                             {% for c in candidates %}
-                            <option value="{{ c._id }}">{{ c.registration_no }}</option>
+                            <option value="{{ c._id }}">
+                                {{ c.registration_no }} - {{ c.student_name }}
+                                {% if not c.is_active %}(Inactive){% endif %}
+                            </option>
                             {% endfor %}
                         </select>
                     </div>
@@ -202,7 +217,7 @@
                         <label>Exam</label>
                         <select name="exam_id" required>
                             {% for e in exams %}
-                            <option value="{{ e._id }}">{{ e.exam_name }}</option>
+                            <option value="{{ e._id }}">{{ e.exam_name }} {% if e.is_active %}(Active){% else %}(Inactive){% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>

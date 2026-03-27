@@ -52,10 +52,19 @@
         <div>
             <strong>{{ c.full_name }}</strong>
             <span style="color:#64748b;"> | Reg. No: {{ c.registration_no }}</span>
+            {% if c.is_active %}
+            <span class="badge badge-manual">Active</span>
+            {% else %}
+            <span class="badge badge-tampered">Inactive</span>
+            {% endif %}
         </div>
-        <form action="/invigilator/delete_student/{{ c._id }}" method="post"
-              onsubmit="return confirm('Delete this student and all related exam data?');">
-            <button type="submit" class="btn btn-danger">Delete Student</button>
+        <form action="/invigilator/toggle_student_status/{{ c._id }}" method="post"
+              onsubmit="return confirm('Change student account status?');">
+            {% if c.is_active %}
+            <button type="submit" class="btn btn-danger">Set Inactive</button>
+            {% else %}
+            <button type="submit" class="btn btn-success">Set Active</button>
+            {% endif %}
         </form>
     </div>
     {% endfor %}
@@ -66,7 +75,7 @@
     <form action="/invigilator/assign_student_exam" method="post" class="form-row">
         <select name="candidate_id" required style="min-width: 220px;">
             <option value="">Select student</option>
-            {% for c in candidates %}
+            {% for c in active_candidates %}
             <option value="{{ c._id }}">{{ c.full_name }} ({{ c.registration_no }})</option>
             {% endfor %}
         </select>
@@ -86,6 +95,12 @@
     {% for a in exam_assignments %}
     <li style="margin: 6px 0;">
         {{ a.candidate_name }} &rarr; {{ a.exam_name }}
+        {% if not a.candidate_active %}
+        <span class="badge badge-tampered">Student Inactive</span>
+        {% endif %}
+        {% if not a.exam_active %}
+        <span class="badge badge-tampered">Exam Inactive</span>
+        {% endif %}
         <form action="/invigilator/unassign_student_exam/{{ a._id }}" method="post" style="display: inline; margin-left: 8px;">
             <button type="submit" class="btn btn-danger" style="padding: 2px 8px; font-size: 12px;">Remove</button>
         </form>
@@ -114,15 +129,26 @@
 
     {% for e in exams %}
     <div class="item flex">
-        <div><strong>{{ e.exam_name }}</strong></div>
+        <div>
+            <strong>{{ e.exam_name }}</strong>
+            {% if e.is_active %}
+            <span class="badge badge-manual">Active</span>
+            {% else %}
+            <span class="badge badge-tampered">Inactive</span>
+            {% endif %}
+        </div>
         <div>
             <button class="btn" onclick="loadQuestions({{ e._id }})">Manage Questions</button>
             <a href="/invigilator/start_exam/{{ e._id }}">
                 <button class="btn btn-success">Start Exam</button>
             </a>
-            <form action="/invigilator/delete_exam/{{ e._id }}" method="post" style="display:inline;"
-                  onsubmit="return confirm('Delete this exam with its questions, sessions, answers, and assignments?');">
-                <button type="submit" class="btn btn-danger">Delete Exam</button>
+            <form action="/invigilator/toggle_exam_status/{{ e._id }}" method="post" style="display:inline;"
+                  onsubmit="return confirm('Change exam status?');">
+                {% if e.is_active %}
+                <button type="submit" class="btn btn-danger">Set Inactive</button>
+                {% else %}
+                <button type="submit" class="btn btn-success">Set Active</button>
+                {% endif %}
             </form>
         </div>
     </div>
